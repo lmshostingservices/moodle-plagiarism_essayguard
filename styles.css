@@ -1,0 +1,567 @@
+/* ── Essay Guard — Plugin Styles ─────────────────────────────────────────────
+ * v1.2.54: Visual layout updated to match the "Teacher grading view" documented
+ * in the Essay Guard docs demo. 3-tier risk levels: low / medium / high.
+ * v1.2.113: Orange scheme aligned across CSS, reporter.js, and tracker.js.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Inline badge (FIX-EG-BADGE-RENDER v1.2.177 — rendered by render_badge()) ── */
+/* Must be kept in sync with the inline <style> block in render_badge() in lib.php. */
+
+.essayguard-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: .78rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    line-height: 1.4;
+    margin: 2px 0;
+    border: 1px solid transparent;
+    cursor: default;
+    position: relative;
+    text-decoration: none;
+}
+.essayguard-badge-low    { background: #f0fdf4; color: #166534; border-color: #86efac; }
+.essayguard-badge-medium { background: #fff7ed; color: #7c2d12; border-color: #fdba74; }
+.essayguard-badge-high   { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+.essayguard-badge-pending{ background: #f3f4f6; color: #6b7280; border-color: #d1d5db; }
+.essayguard-badge-error  { background: #fdf2f8; color: #6b21a8; border-color: #d8b4fe; }
+
+.essayguard-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+.essayguard-badge-dot-low    { background: #22c55e; }
+.essayguard-badge-dot-medium { background: #f97316; }
+.essayguard-badge-dot-high   { background: #ef4444; }
+.essayguard-badge-dot-pending{ background: #9ca3af; }
+.essayguard-badge-dot-error  { background: #7c3aed; }
+
+.essayguard-wrap {
+    margin: 4px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.essayguard-link {
+    font-size: .78rem;
+    color: #555;
+    text-decoration: underline;
+    display: inline-block;
+    margin-top: 2px;
+}
+
+.essayguard-badge[data-eg-tip]:hover::after {
+    content: attr(data-eg-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 9999;
+    background: #1e293b;
+    color: #f1f5f9;
+    font-size: .72rem;
+    font-weight: 400;
+    line-height: 1.5;
+    padding: 7px 11px;
+    border-radius: 5px;
+    width: 300px;
+    white-space: normal;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+.essayguard-badge[data-eg-tip]:hover::before {
+    content: "";
+    position: absolute;
+    bottom: calc(100% + 1px);
+    left: 14px;
+    border: 5px solid transparent;
+    border-top-color: #1e293b;
+    pointer-events: none;
+}
+
+/* ── Inline risk badge (rendered by get_links / plagiarism API) ──────────── */
+
+.essayguard-risk {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-top: 6px;
+    border: 1px solid transparent;
+}
+
+.essayguard-risk::before {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.essayguard-risk-low {
+    background: #f0fdf4;
+    color: #166534;
+    border-color: #86efac;
+}
+.essayguard-risk-low::before { background: #22c55e; }
+
+/* v1.2.113: 'medium' is the canonical middle tier (TypeShield-aligned, 30–65).
+ * Orange scheme matches reporter.js and tracker.js COLOURS.medium exactly.
+ * 'partial' and 'mild' are legacy DB aliases kept for records written before v1.2.112. */
+.essayguard-risk-medium {
+    background: #fff7ed;
+    color: #7c2d12;
+    border-color: #fdba74;
+}
+.essayguard-risk-medium::before { background: #f97316; }
+
+/* Legacy aliases — kept for DB records written before v1.2.112. Orange scheme
+ * aligned with reporter.js / tracker.js legacy alias colours (v1.2.113). */
+.essayguard-risk-partial {
+    background: #fff7ed;
+    color: #7c2d12;
+    border-color: #fdba74;
+}
+.essayguard-risk-partial::before { background: #f97316; }
+
+.essayguard-risk-mild {
+    background: #fff7ed;
+    color: #7c2d12;
+    border-color: #fdba74;
+}
+.essayguard-risk-mild::before { background: #f97316; }
+
+.essayguard-risk-high {
+    background: #fef2f2;
+    color: #991b1b;
+    border-color: #fca5a5;
+}
+.essayguard-risk-high::before { background: #ef4444; }
+
+/* ── Report page layout ───────────────────────────────────────────────────── */
+
+.essayguard-report {
+    max-width: 960px;
+    margin: 1.5rem auto;
+    font-family: inherit;
+}
+
+.essayguard-report-header {
+    margin-bottom: 1.25rem;
+}
+
+.essayguard-report-titlerow {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.essayguard-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.85rem;
+    color: #6b7280;
+    text-decoration: none;
+    margin-bottom: 0.5rem;
+}
+.essayguard-back-link:hover { color: #111827; text-decoration: underline; }
+
+.essayguard-title-block { display: flex; align-items: flex-start; gap: 0.75rem; }
+.essayguard-title-inner { display: flex; align-items: flex-start; gap: 0.75rem; }
+
+/* ── Summary row ─────────────────────────────────────────────────────────── */
+
+.essayguard-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+}
+
+.essayguard-summary-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.essayguard-summary-note {
+    margin-left: auto;
+    color: #9ca3af;
+    font-size: 0.78rem;
+}
+
+/* ── Shared dot ──────────────────────────────────────────────────────────── */
+
+.essayguard-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.essayguard-table-wrap {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.essayguard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.essayguard-table thead tr {
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.essayguard-table thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.essayguard-table tbody tr {
+    border-bottom: 1px solid #f3f4f6;
+    transition: background 0.15s;
+}
+.essayguard-table tbody tr:last-child { border-bottom: none; }
+.essayguard-table tbody tr:hover { background: #f9fafb; }
+.essayguard-table tbody tr.essayguard-row-high { background: #fff5f5; }
+.essayguard-table tbody tr.essayguard-row-high:hover { background: #fee2e2; }
+
+.essayguard-table tbody td {
+    padding: 12px 14px;
+    vertical-align: middle;
+}
+
+/* ── Student cell ────────────────────────────────────────────────────────── */
+
+.essayguard-student-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.essayguard-avatar {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+}
+
+.essayguard-student-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.essayguard-student-name {
+    font-weight: 600;
+    color: #111827;
+    text-decoration: none;
+    font-size: 0.88rem;
+}
+.essayguard-student-name:hover { text-decoration: underline; }
+
+.essayguard-detail-link {
+    font-size: 0.75rem;
+    color: #6b7280;
+    text-decoration: none;
+}
+.essayguard-detail-link:hover { color: #374151; text-decoration: underline; }
+
+/* ── Risk pill ───────────────────────────────────────────────────────────── */
+
+.essayguard-risk-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.essayguard-empty {
+    padding: 2rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    color: #6b7280;
+    font-size: 0.9rem;
+    text-align: center;
+}
+
+/* ── Class Report (DocGuard-quality layout) ──────────────────────────────── */
+
+.eg-class-header {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
+    color: #fff !important;
+    padding: 1.25rem 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.eg-class-header *  { color: #fff !important; }
+
+.eg-class-header-inner { display: flex; flex-direction: column; gap: 0.25rem; }
+
+.eg-class-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #fff !important;
+}
+
+.eg-class-meta {
+    margin: 0;
+    font-size: 0.82rem;
+    color: rgba(255,255,255,0.80) !important;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.eg-version-badge {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.30);
+    color: #fff !important;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.eg-back-btn {
+    color: #fff !important;
+    font-size: 0.82rem;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.eg-back-btn:hover { color: #fff !important; text-decoration: underline; }
+
+.eg-class-subtitle {
+    margin: 0 0 1.25rem;
+    font-size: 0.88rem;
+    color: #6b7280;
+}
+
+/* ── Stat cards ──────────────────────────────────────────────────────────── */
+
+.eg-stat-cards {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.75rem;
+}
+
+.eg-stat-card {
+    padding: 0.75rem 1.25rem;
+    border-radius: 6px;
+    min-width: 110px;
+    text-align: center;
+}
+
+.eg-stat-num {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.eg-stat-label {
+    font-size: 0.78rem;
+    opacity: 0.85;
+    margin-top: 2px;
+}
+
+/* ── Section headings ────────────────────────────────────────────────────── */
+
+.eg-section-heading {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #c2410c;
+    margin: 0 0 0.75rem;
+}
+
+/* ── Submissions table ───────────────────────────────────────────────────── */
+
+.eg-class-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.eg-class-table thead tr {
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.eg-class-table thead th {
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #374151;
+    white-space: nowrap;
+}
+
+.eg-class-table tbody tr {
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.eg-class-table tbody tr:hover { background: #f9fafb; }
+.eg-class-table tbody tr.essayguard-row-high { background: #fff5f5; }
+.eg-class-table tbody tr.essayguard-row-high:hover { background: #fee2e2; }
+
+.eg-class-table tbody td {
+    padding: 0.65rem 0.75rem;
+    vertical-align: middle;
+    font-size: 0.88rem;
+}
+
+/* ── Per-question breakdown rows ─────────────────────────────────────────── */
+
+.eg-perq-row { background: #fafafa; }
+.eg-perq-label {
+    padding-left: 2.5rem;
+    color: #6b7280;
+    font-size: 0.85rem;
+}
+
+/* ── Score badge ─────────────────────────────────────────────────────────── */
+
+.eg-score-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+.eg-score-badge-low    { background: #f0fdf4; color: #166534; }
+.eg-score-badge-medium { background: #fff7ed; color: #7c2d12; }
+.eg-score-badge-high   { background: #fef2f2; color: #991b1b; }
+
+/* ── Action button ───────────────────────────────────────────────────────── */
+
+.eg-action-btn {
+    display: inline-block;
+    padding: 3px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #374151;
+    text-decoration: none;
+    white-space: nowrap;
+    background: #fff;
+}
+.eg-action-btn:hover { background: #f3f4f6; border-color: #9ca3af; color: #111827; }
+
+/* ── Student name / email ────────────────────────────────────────────────── */
+
+.eg-student-name {
+    font-weight: 600;
+    color: #111827;
+    text-decoration: none;
+    font-size: 0.88rem;
+}
+.eg-student-name:hover { text-decoration: underline; }
+.eg-student-name-plain { font-weight: 600; font-size: 0.88rem; }
+
+.eg-student-email { color: #9ca3af; font-size: 0.78rem; }
+
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+
+.eg-center { text-align: center; }
+.eg-ts     { font-size: 0.82rem; white-space: nowrap; }
+.eg-muted  { color: #9ca3af; }
+
+/* ── Similarity / Cross-Student section ─────────────────────────────────── */
+
+.eg-similarity-note {
+    font-size: 0.88rem;
+    color: #555;
+    margin-bottom: 0.75rem;
+}
+
+.eg-no-similarity {
+    color: #6b7280;
+    font-style: italic;
+}
+
+.eg-similarity-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.eg-similarity-table thead th {
+    padding: 0.55rem 0.75rem;
+    text-align: left;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #374151;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.eg-similarity-table tbody td {
+    padding: 0.6rem 0.75rem;
+    font-size: 0.88rem;
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: middle;
+}
+
+.eg-signal-label { color: #374151; font-size: 0.85rem; }
+
+/* ── Debug bar ───────────────────────────────────────────────────────────── */
+
+.eg-debug-bar {
+    margin-top: 2rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #e5e7eb;
+    font-size: 0.8rem;
+    color: #9ca3af;
+}
+
+.eg-debug-link {
+    color: #9ca3af;
+    text-decoration: underline;
+}
+.eg-debug-link:hover { color: #6b7280; }

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="plagiarism/essayguard/db" VERSION="2026030700110" COMMENT="XMLDB file for Essay Guard"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd">
+    <TABLES>
+        <TABLE NAME="plagiarism_essayguard_ev" COMMENT="Raw telemetry events">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="contextid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="attemptkey" TYPE="char" LENGTH="64" NOTNULL="true"/>
+                <FIELD NAME="eventname" TYPE="char" LENGTH="32" NOTNULL="true"/>
+                <FIELD NAME="eventtime" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="payloadjson" TYPE="text" NOTNULL="false"/>
+                <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="user_cmid_ix" UNIQUE="false" FIELDS="userid, cmid"/>
+                <INDEX NAME="attempt_ix" UNIQUE="false" FIELDS="attemptkey"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="plagiarism_essayguard_sc" COMMENT="Derived scores per typing session">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="cmid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="contextid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="attemptkey" TYPE="char" LENGTH="64" NOTNULL="true"/>
+                <FIELD NAME="qslot" TYPE="int" LENGTH="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="riskscore" TYPE="number" LENGTH="10" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="risklevel" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="low"/>
+                <FIELD NAME="metricsjson" TYPE="text" NOTNULL="false"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="typing_time" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="idle_time" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="total_keystrokes" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="paste_events" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="backspace_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="delete_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="cursor_moves" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="average_wpm" TYPE="number" LENGTH="8" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="wpm_std_dev" TYPE="number" LENGTH="8" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="interkey_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="interkey_std_dev" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="pause_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="pause_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="pause_std_dev" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="burst_count" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="burst_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="burst_std_dev" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="sentence_variance" TYPE="number" LENGTH="10" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="vocab_diversity" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="rare_word_ratio" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="thinking_pause_score" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="entropy_score" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="explanationsjson" TYPE="text" NOTNULL="false"/>
+                <FIELD NAME="baseline_deviation" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_status" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="none"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="attemptslot_uix" UNIQUE="true" FIELDS="userid, cmid, attemptkey, qslot"/>
+                <INDEX NAME="cmid_qslot_ix" UNIQUE="false" FIELDS="cmid, qslot"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="plagiarism_essayguard_fp" COMMENT="Student writing behaviour fingerprint / baseline">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="samplecount" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_wpm" TYPE="number" LENGTH="8" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_pause_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_backspace_ratio" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_burst_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_sentence_variance" TYPE="number" LENGTH="10" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_vocab_diversity" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_entropy" TYPE="number" LENGTH="8" DECIMALS="4" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_interkey_mean" TYPE="number" LENGTH="10" DECIMALS="2" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="baseline_status" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="none"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="userid_ix" UNIQUE="true" FIELDS="userid"/>
+            </INDEXES>
+        </TABLE>
+    </TABLES>
+</XMLDB>

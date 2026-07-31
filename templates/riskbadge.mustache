@@ -1,0 +1,6 @@
+{{!
+    Risk badge rendered inline on student submissions (plagiarism API get_links).
+    v1.2.54: Pill with coloured dot indicator matching the Essay Guard docs demo.
+    Context vars: risklevel, risklevelcap, riskscorepercent, label
+}}
+<span class="essayguard-risk essayguard-risk-{{risklevel}}">{{risklevelcap}} · {{riskscorepercent}}%</span>
