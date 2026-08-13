@@ -1,4 +1,27 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * plagiarism_essayguard file.
+ *
+ * @package    plagiarism_essayguard
+ * @copyright  2026 LMS-Labs
+ * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ */
+
 // EssayGuard — JS Event Capture Tester
 // URL: /plagiarism/essayguard/capture_test.php
 // Tests: paste detection, large inserts, keystroke ratio, pauses, CPS, backspace ratio.
@@ -201,7 +224,7 @@ echo $OUTPUT->header();
     }
     // flash border
     area.classList.add('paste-flash');
-    setTimeout(function(){ area.classList.remove('paste-flash'); }, 600);
+    setTimeout(function (){ area.classList.remove('paste-flash'); }, 600);
     state.lastKeyTime = ts;
     setTimeout(refresh, 50);
   });
@@ -364,7 +387,7 @@ echo $OUTPUT->header();
 
     // Signal list
     var html = '';
-    [1, 2, 4, 5, 8, 12, 13].forEach(function(k) {
+    [1, 2, 4, 5, 8, 12, 13].forEach(function (k) {
       var sig = r.signals[k];
       if (!sig) return;
       var cls = sig.fired === null ? 'warn' : sig.fired ? 'fired' : 'silent';
@@ -412,8 +435,8 @@ echo $OUTPUT->header();
   document.getElementById('btn-copy').addEventListener('click', function () {
     navigator.clipboard.writeText(SHORT_TEXT).then(function () {
       this.textContent = 'Copied! Now paste into the box ↑';
-      setTimeout(function(){ document.getElementById('btn-copy').textContent = 'Copy test text'; }, 2500);
-    }.bind(this)).catch(function() {
+      setTimeout(function (){ document.getElementById('btn-copy').textContent = 'Copy test text'; }, 2500);
+    }.bind(this)).catch(function () {
       prompt('Copy this text:', SHORT_TEXT);
     });
   });
@@ -421,8 +444,8 @@ echo $OUTPUT->header();
   document.getElementById('btn-copylarge').addEventListener('click', function () {
     navigator.clipboard.writeText(LARGE_TEXT).then(function () {
       this.textContent = 'Copied large block! Now paste ↑';
-      setTimeout(function(){ document.getElementById('btn-copylarge').textContent = 'Copy large block (500 chars)'; }, 2500);
-    }.bind(this)).catch(function() {
+      setTimeout(function (){ document.getElementById('btn-copylarge').textContent = 'Copy large block (500 chars)'; }, 2500);
+    }.bind(this)).catch(function () {
       prompt('Copy this text:', LARGE_TEXT);
     });
   });

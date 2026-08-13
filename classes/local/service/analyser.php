@@ -1,4 +1,18 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 namespace plagiarism_essayguard\local\service;
 
@@ -24,7 +38,6 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class analyser {
-
     /**
      * Score a typing session from its raw events.
      * Optionally incorporates linguistic metrics from the final text.
@@ -91,7 +104,7 @@ class analyser {
         // no qslot key belong to the aggregate, period. This mirrors the JS lock-at-bind-time
         // fix in tracker.js v1.2.89 — both sides now enforce strict qslot isolation.
         if ($qslot > 0) {
-            $events = array_filter($all_events, static function($ev) use ($qslot) {
+            $events = array_filter($all_events, static function ($ev) use ($qslot) {
                 $p = json_decode($ev->payloadjson ?? '{}', true) ?: [];
                 return isset($p['qslot']) && (int)$p['qslot'] === $qslot;
             });
