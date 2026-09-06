@@ -221,7 +221,7 @@ function rmd_select_record(
     if ($pq_record && $agg_record) {
         $trace[] = ['info', 'Both per-question and aggregate records exist', 'Running fallback guard logic (lib.php v1.2.132+)'];
 
-        // agg_has_paste_evidence
+        // Note: agg_has_paste_evidence
         $agg_metrics = !empty($agg_record->metricsjson)
             ? (json_decode($agg_record->metricsjson, true) ?: [])
             : [];
@@ -238,7 +238,7 @@ function rmd_select_record(
                 . ' → aggregate fallback will NOT fire regardless of per-question score'];
         }
 
-        // pq_looks_like_missed_paste
+        // Note: pq_looks_like_missed_paste
         $pq_ks = (int)($pq_record->total_keystrokes ?? 0);
         $pq_pe = (int)($pq_record->paste_events     ?? 0);
         $pq_rs = (float)$pq_record->riskscore;
@@ -885,7 +885,7 @@ if (empty($sc_by_slot) || (count($sc_by_slot) <= 1 && isset($sc_by_slot[0]))) {
                            . 'Badge will be LOW until the attempt is rescored after the fix is applied.';
 
         } elseif ($pe === 0 && $ks <= 10 && $pct < 30 && $agg_pct !== null && $agg_s1 >= 30) {
-            // pq_looks_like_missed_paste should have triggered aggregate fallback — but didn't?
+            // Note: pq_looks_like_missed_paste should have triggered aggregate fallback — but didn't?
             $scenario     = 'H4_MISSED_PASTE_FALLBACK_MISSED';
             $scenario_cls = 'scenario-missed';
             $scenario_text = 'MISSED (fallback should have fired). '

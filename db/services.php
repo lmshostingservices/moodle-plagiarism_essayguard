@@ -45,7 +45,7 @@ $functions = [
         'capabilities'=> '',
     ],
 
-    // v1.2.54 BUG-EG-NO-BADGE-OVERVIEW: Batch badge fetch for reporter.js
+    // V1.2.54 BUG-EG-NO-BADGE-OVERVIEW: Batch badge fetch for reporter.js
     // so the quiz grading overview table can show Essay Guard risk badges
     // without requiring individual attempt-review page visits.
     'plagiarism_essayguard_get_badges' => [

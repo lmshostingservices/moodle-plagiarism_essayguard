@@ -1,5 +1,32 @@
 # Essay Guard Changelog
 
+## [1.2.218] — 2026-09-06
+
+### FIX-EG-AMD-ANON-DEFINE
+
+The built AMD modules in `amd/build/` (`tracker.js`, `tracker.min.js`, `reporter.js`, `reporter.min.js`) declared an **anonymous** `define(['core/ajax'], ...)`. Moodle serves built AMD modules through `lib/requirejs.php`, which may return more than one module in a single response, so RequireJS cannot attribute an anonymous `define()` to a module name and throws:
+
+```
+Uncaught Error: Mismatched anonymous define() module
+```
+
+The tracker therefore never initialised, and no keystroke, paste or burst events were captured on quiz attempt pages.
+
+Both build files now declare their module name explicitly:
+
+```js
+define("plagiarism_essayguard/tracker", ["core/ajax"], function(Ajax) { ... });
+define("plagiarism_essayguard/reporter", ["core/ajax"], function(Ajax) { ... });
+```
+
+Sources in `amd/src/` remain anonymous, which is correct — Moodle's grunt build inserts the module name.
+
+**After upgrading, purge all caches** (Site administration → Development → Purge all caches) so `jsrev` bumps and browsers stop serving the cached broken file.
+
+**No DB schema changes.**
+
+---
+
 ## [1.2.216] — 2026-07-25
 
 ### FEATURE-EG-CENTRAL-CONFIG-INHERIT

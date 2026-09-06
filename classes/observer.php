@@ -18,7 +18,7 @@ namespace plagiarism_essayguard;
 
 defined('MOODLE_INTERNAL') || die();
 
-// lib.php is NOT auto-loaded when Moodle's event system dispatches to an observer
+// Note: lib.php is NOT auto-loaded when Moodle's event system dispatches to an observer
 // via the autoloader. Without this require_once, any call to a lib.php function
 // (e.g. plagiarism_essayguard_check_unlock) throws "Call to undefined function".
 require_once(__DIR__ . '/../lib.php');
@@ -333,7 +333,7 @@ class observer {
             return [];
         }
 
-        // qas.id is the unique primary key and MUST be the first column so Moodle's
+        // Note: qas.id is the unique primary key and MUST be the first column so Moodle's
         // get_records_sql() can use it as the array key without "Duplicate value" errors.
         // qa.slot is NOT unique across rows — a question can have multiple attempt steps
         // (autosaves, state transitions) each storing an 'answer' in step_data. Without
@@ -420,7 +420,7 @@ class observer {
             return '';
         }
 
-        // qas.id is the unique primary key and MUST be the first column so Moodle's
+        // Note: qas.id is the unique primary key and MUST be the first column so Moodle's
         // get_records_sql() can use it as the array key without "Duplicate value" errors.
         // qa.slot is included so we can deduplicate per question (see ORDER BY note below).
         // FIX-EG-ZERO-SCORE: ORDER BY qas.id DESC + !isset deduplication ensures only the
@@ -486,7 +486,7 @@ class observer {
         // must be explicitly addressed from the root namespace.
         $unlocked = \plagiarism_essayguard_check_unlock();
         if (!$unlocked) {
-            // check_unlock() already logs the reason (HTTP code, curl error, or not-unlocked).
+            // Note: check_unlock() already logs the reason (HTTP code, curl error, or not-unlocked).
             // This additional log entry surfaces it at the observer level so admins can
             // correlate "no Essay Guard data" in the report with the unlock failure.
             error_log('[plagiarism_essayguard] observer skipped: site not unlocked.'

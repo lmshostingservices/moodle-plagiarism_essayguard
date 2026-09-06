@@ -378,7 +378,7 @@ function plagiarism_essayguard_is_cm_active(int $cmid): bool {
     }
 
     $value = get_config('plagiarism_essayguard', 'enabled_cm_' . $cmid);
-    // get_config() returns false when the key has never been saved.
+    // Note: get_config() returns false when the key has never been saved.
     // Treat missing = active so badges still appear on pre-existing assignments.
     return ($value === false) || !empty($value);
 }
@@ -928,7 +928,7 @@ function plagiarism_essayguard_render_badge(
         $label        = 'Essay Guard Error';
         $tooltip      = 'Essay Guard could not analyse this submission. ' . (trim($errmsg) ?: 'Check plugin settings.');
     } else {
-        // pending or any unrecognised status
+        // Pending or any unrecognised status
         $badge_class .= ' essayguard-badge-pending';
         $dot_class   .= ' essayguard-badge-dot-pending';
         $label        = 'Essay Guard Pending';
@@ -1068,7 +1068,7 @@ function plagiarism_essayguard_get_links($linkarray) {
 
     $rk = $cmid . ':' . $userid;
 
-    // v1.2.14: attempt to retrieve a per-question score when Moodle passes a
+    // V1.2.14: attempt to retrieve a per-question score when Moodle passes a
     // question_attempt object (quiz essay grading / review view).
     // Moodle passes $linkarray['questionattempt'] = question_attempt instance,
     // which exposes ->get_slot() returning the 1-based question slot number.
@@ -1147,7 +1147,9 @@ function plagiarism_essayguard_get_links($linkarray) {
         if (!array_key_exists($ck, $co_slots)) {
             // PERF-FIX-EG-BATCH-PRELOAD: serve from request-level cache; no DB query.
             $user_slots = array_keys($_eg_sc_cache[$cmid][$userid] ?? []);
-            $user_slots = array_values(array_filter($user_slots, function ($s) { return $s > 0; }));
+            $user_slots = array_values(array_filter($user_slots, function ($s) {
+            return $s > 0;
+        }));
             sort($user_slots);
             $co_slots[$ck] = $user_slots;
         }

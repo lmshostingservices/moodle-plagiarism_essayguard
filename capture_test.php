@@ -197,11 +197,11 @@ echo $OUTPUT->header();
       logEv('key', 'BACKSPACE');
     } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
       state.keys++;
-      // don't log every key — just count
+      // Don't log every key — just count
     } else {
-      // modifier / special key — still a keystroke for ratio purposes
+      // Modifier / special key — still a keystroke for ratio purposes
       if (e.key.length > 1 && e.key !== 'Shift' && e.key !== 'CapsLock') {
-        // navigation / modifier — don't count as typing keystroke
+        // Navigation / modifier — don't count as typing keystroke
       }
     }
     refresh();
@@ -222,7 +222,7 @@ echo $OUTPUT->header();
     } else {
       logEv('paste', 'PASTE: ' + len + ' chars — "' + text.slice(0, 60).replace(/\n/g,' ') + '"');
     }
-    // flash border
+    // Flash border
     area.classList.add('paste-flash');
     setTimeout(function (){ area.classList.remove('paste-flash'); }, 600);
     state.lastKeyTime = ts;
@@ -250,7 +250,7 @@ echo $OUTPUT->header();
     if (!state.startTime) state.startTime = ts;
     // Detect large inserts not caught by paste (e.g. autocomplete, voice)
     if (e.inputType === 'insertFromPaste' || e.inputType === 'insertFromDrop') {
-      // already handled by paste/drop — skip to avoid double-count
+      // Already handled by paste/drop — skip to avoid double-count
     } else if (e.inputType === 'insertText' && typeof e.data === 'string' && e.data.length > LARGE_THR) {
       state.largeInserts++;
       logEv('large', 'LARGE AUTO-INSERT: ' + e.data.length + ' chars (inputType=' + e.inputType + ')');
@@ -274,7 +274,7 @@ echo $OUTPUT->header();
     var ksRatio     = textChars > 0 ? keystrokes / textChars : 0;
     var cps         = elapsedSec > 2 && textChars > 0 ? textChars / elapsedSec : 0;
 
-    // events_empty_for_scoring analog: no keys AND no paste events
+    // Note: events_empty_for_scoring analog: no keys AND no paste events
     var eventsEmpty  = (keystrokes === 0 && pasteCount === 0);
 
     // FIX-EG-S13-NO-PASTE flag (v1.2.143)

@@ -147,15 +147,18 @@ $bs_samples = $bs_fp ? (int)$bs_fp->samplecount : 0;
 switch ($bs) {
     case 'stable':
         $bslabel = 'Stable (' . $bs_samples . ' submissions)';
-        $bsbg    = '#e8f5e9'; $bstc = '#166534';
+        $bsbg    = '#e8f5e9';
+        $bstc = '#166534';
         break;
     case 'preliminary':
         $bslabel = 'Building (' . $bs_samples . '/5 submissions)';
-        $bsbg    = '#fffde7'; $bstc = '#92400e';
+        $bsbg    = '#fffde7';
+        $bstc = '#92400e';
         break;
     default:
         $bslabel = 'No baseline yet';
-        $bsbg    = '#f5f5f5'; $bstc = '#6b7280';
+        $bsbg    = '#f5f5f5';
+        $bstc = '#6b7280';
         break;
 }
 echo '<div style="display:inline-block;padding:0.5rem 1rem;border-radius:6px;background:' . $bsbg . ';margin-bottom:1.5rem;font-size:0.85rem;">';

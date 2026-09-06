@@ -693,7 +693,7 @@ if ($sample_userid) {
                     // v1.2.113" which was misleading — it was a fresh attempt, just no events.
                     $sb = $metrics['signal_breakdown'] ?? null;
                     if ($s100 !== null) {
-                        // v1.2.124+ session — show signal details.
+                        // V1.2.124+ session — show signal details.
                         $total_raw  = is_array($sb) ? (int)array_sum($sb) : 0;
 
                         if (is_array($sb) && !empty($sb)) {

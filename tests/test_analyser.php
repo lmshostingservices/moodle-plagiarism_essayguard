@@ -232,15 +232,15 @@ TestRunner::assert_equals('Cursor moves → cursor_moves = 10', 10, $r['metrics'
 // ══════════════════════════════════════════════════════════════════════════════
 echo CLR_CYAN . "\n  Scenario 9: std_dev and entropy_from_sd helper methods\n" . CLR_RESET;
 
-// std_dev of identical values = 0
+// Note: std_dev of identical values = 0
 $sd0 = analyser::std_dev([100, 100, 100, 100]);
 TestRunner::assert_equals('std_dev of identical values = 0.0', 0.0, $sd0);
 
-// std_dev of [0, 10] = 5.0  (mean=5, sq_diff=(25+25)/2=25, sqrt=5)
+// Note: std_dev of [0, 10] = 5.0  (mean=5, sq_diff=(25+25)/2=25, sqrt=5)
 $sd5 = analyser::std_dev([0.0, 10.0]);
 TestRunner::assert_equals('std_dev([0, 10]) = 5.0', 5.0, $sd5);
 
-// entropy_from_sd boundaries
+// Note: entropy_from_sd boundaries
 TestRunner::assert_equals('entropy_from_sd(0)   = 0.0',  0.0,  analyser::entropy_from_sd(0));
 TestRunner::assert_equals('entropy_from_sd(50)  = 0.15', 0.15, analyser::entropy_from_sd(50));
 TestRunner::assert_equals('entropy_from_sd(80)  = 0.25', 0.25, analyser::entropy_from_sd(80));
@@ -249,7 +249,7 @@ TestRunner::assert_equals('entropy_from_sd(180) = 0.60', 0.60, analyser::entropy
 TestRunner::assert_equals('entropy_from_sd(250) = 0.80', 0.80, analyser::entropy_from_sd(250));
 TestRunner::assert_equals('entropy_from_sd(400) = 1.0',  1.0,  analyser::entropy_from_sd(400));
 
-// risk_level thresholds — v1.2.112+: LOW 0-29, MEDIUM 30-65, HIGH 66-100.
+// Note: risk_level thresholds — v1.2.112+: LOW 0-29, MEDIUM 30-65, HIGH 66-100.
 // analyser::risk_level() returns 'medium' (not 'partial') since v1.2.112.
 // 'partial' is a legacy DB alias preserved only for display-layer mapping.
 TestRunner::assert_equals('risk_level(0)   = low',    'low',    analyser::risk_level(0));

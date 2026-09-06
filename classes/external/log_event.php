@@ -64,7 +64,7 @@ class log_event extends external_api {
                 new external_single_structure([
                     'eventname'   => new external_value(PARAM_ALPHAEXT, 'Event name'),
                     'eventtime'   => new external_value(PARAM_INT, 'Client event timestamp'),
-                    'payloadjson' => new external_value(PARAM_RAW, 'JSON payload'),
+                    'payloadjson' => new external_value(PARAM_RAW, 'JSON payload'), // pipeline-ignore: PARAM_RAW — JSON blob, json_decode()'d on store.
                 ])
             ),
         ]);
@@ -121,6 +121,15 @@ class log_event extends external_api {
         // once the unlock issue is resolved and the 30-min cache is refreshed.
         $now = time();
         foreach ($params['events'] as $event) {
+            // FIX-EG-PAYLOAD-VALIDATE (v1.2.218): payloadjson arrives as an unfiltered string
+            // because it is a JSON document, not free text. Decode and re-encode it here so only
+            // well-formed JSON produced by json_encode() is ever written to the database.
+            // Anything that is not a JSON object is stored as an empty object.
+            $decodedpayload = json_decode($event['payloadjson'] ?? '{}', true);
+            if (!is_array($decodedpayload)) {
+                $decodedpayload = [];
+            }
+
             $record = (object)[
                 'userid'      => $USER->id,
                 'cmid'        => $cm->id,
@@ -128,7 +137,7 @@ class log_event extends external_api {
                 'attemptkey'  => $params['attemptkey'],
                 'eventname'   => $event['eventname'],
                 'eventtime'   => $event['eventtime'],
-                'payloadjson' => $event['payloadjson'],
+                'payloadjson' => json_encode($decodedpayload),
                 'timecreated' => $now,
             ];
             $DB->insert_record('plagiarism_essayguard_ev', $record);

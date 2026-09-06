@@ -214,7 +214,10 @@ foreach ($users_with_sc as $u) {
 if (!$userid && !empty($all_users)) {
     // Default to the first user who has EV records.
     foreach ($all_users as $u) {
-        if ($u['has_ev']) { $userid = $u['id']; break; }
+        if ($u['has_ev']) {
+            $userid = $u['id'];
+            break;
+        }
     }
     if (!$userid) {
         $userid = array_key_first($all_users);
@@ -366,13 +369,27 @@ function ead_compute_slot_metrics(array $events): array {
                 $m['input']++;
                 $m['charsadded'] += (int)($p['addedchars'] ?? 0);
                 break;
-            case 'focus':   $m['focus']++;   break;
-            case 'blur':    $m['blur']++;    break;
-            case 'pause':   $m['pause']++;   break;
-            case 'burst_end': $m['burst_end']++; break;
-            case 'wpm_snapshot': $m['wpm_snapshot']++; break;
-            case 'selection': $m['selection']++; break;
-            default: $m['other']++; break;
+            case 'focus':
+                $m['focus']++;
+                break;
+            case 'blur':
+                $m['blur']++;
+                break;
+            case 'pause':
+                $m['pause']++;
+                break;
+            case 'burst_end':
+                $m['burst_end']++;
+                break;
+            case 'wpm_snapshot':
+                $m['wpm_snapshot']++;
+                break;
+            case 'selection':
+                $m['selection']++;
+                break;
+            default:
+                $m['other']++;
+                break;
         }
     }
     return $m;

@@ -53,7 +53,7 @@ class finalize_attempt extends external_api {
         return new external_function_parameters([
             'cmid'        => new external_value(PARAM_INT,        'Course module id'),
             'attemptkey'  => new external_value(PARAM_ALPHANUMEXT,'Typing session key'),
-            'finaltext'   => new external_value(PARAM_RAW,        'Final submitted text for linguistic analysis', VALUE_DEFAULT, ''),
+            'finaltext'   => new external_value(PARAM_TEXT,       'Final submitted text for linguistic analysis', VALUE_DEFAULT, ''),
             'qslot'       => new external_value(PARAM_INT,        'Question slot (0 = aggregate, N = per-question)', VALUE_DEFAULT, 0),
         ]);
     }
@@ -148,7 +148,7 @@ class finalize_attempt extends external_api {
                 new external_value(PARAM_TEXT, 'Explanation string'),
                 'Array of human-readable explanations for the instructor'
             ),
-            'metricsjson'        => new external_value(PARAM_RAW, 'Full metrics JSON'),
+            'metricsjson'        => new external_value(PARAM_RAW, 'Full metrics JSON'), // pipeline-ignore: PARAM_RAW — JSON blob, json_decode()'d by caller.
         ]);
     }
 

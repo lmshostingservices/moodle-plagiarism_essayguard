@@ -88,7 +88,7 @@ class analyser {
             'attemptkey' => $attemptkey,
         ], 'id ASC');
 
-        // v1.2.14: Filter to per-question events when qslot > 0.
+        // V1.2.14: Filter to per-question events when qslot > 0.
         // In aggregate mode (qslot = 0) all events are included regardless of their
         // embedded qslot value, matching pre-v1.2.14 behaviour.
         //
@@ -147,7 +147,7 @@ class analyser {
         if ($qslot > 0 && !empty($events)) {
             $has_paste_in_qslot = false;
             foreach ($events as $ev) {
-                // large_insert is also a paste proxy (TinyMCE input-event fallback).
+                // Note: large_insert is also a paste proxy (TinyMCE input-event fallback).
                 if ($ev->eventname === 'paste' || $ev->eventname === 'drop_paste'
                         || $ev->eventname === 'large_insert') {
                     $has_paste_in_qslot = true;
@@ -198,7 +198,7 @@ class analyser {
                             continue; // Length mismatch — paste belongs to another question.
                         }
                     }
-                    // plen=0 or finaltext unknown: include (evidence of paste exists).
+                    // Note: plen=0 or finaltext unknown: include (evidence of paste exists).
                     $events[$key] = $ev;
                 }
                 ksort($events); // Restore id/time order after inserting untagged pastes.
@@ -281,7 +281,7 @@ class analyser {
                             continue; // verifiable length mismatch — skip this paste
                         }
                     }
-                    // plen=0 or text unknown: include paste (evidence of paste exists).
+                    // Note: plen=0 or text unknown: include paste (evidence of paste exists).
                     $events[$key] = $ev;
                 }
             }
@@ -351,9 +351,9 @@ class analyser {
                         } elseif ($ratio >= 0.10 && $ratio < 0.70) {
                             $ppf_partial[$key] = $ev;
                         }
-                        // ratio < 0.10 or ratio > 1.40 → too far off, skip.
+                        // Ratio < 0.10 or ratio > 1.40 → too far off, skip.
                     } else {
-                        // plen=0: unknown size — conservatively count as full-answer.
+                        // Note: plen=0: unknown size — conservatively count as full-answer.
                         $ppf_full[$key] = $ev;
                     }
                 }
@@ -659,7 +659,7 @@ class analyser {
             'rare_word_ratio'        => $rare_word_ratio,
             'avgdelta'               => round($interkey_mean, 2),
             'revisionratio'          => round($backspace_ratio, 4),
-            // v1.2.113: stored so explainer.php can compute Signal 12 keystroke ratio
+            // V1.2.113: stored so explainer.php can compute Signal 12 keystroke ratio
             // without approximation (text_chars = final submitted text length after
             // HTML entity decode, the same value used by the Signal 12 gate).
             'text_chars'             => $text_chars,
@@ -692,7 +692,7 @@ class analyser {
         //   MIXED        → MEDIUM or HIGH depending on other signals
         $score = 0.0;
 
-        // v1.2.113: Per-signal point tracker. Keys 1–12 = signal number; values =
+        // V1.2.113: Per-signal point tracker. Keys 1–12 = signal number; values =
         // points contributed by that signal. Stored in metricsjson as 'signal_breakdown'
         // so student.php can display a TypeShield-quality per-signal attribution table.
         // Reflects raw contributions before the false-positive cap; the final score100
@@ -817,7 +817,8 @@ class analyser {
                     // $total_keystrokes, or if clipboard reported a compressed insertlen.
                     // PASTE-WEIGHT (v1.2.212): scale by admin-configured multiplier.
                     $s1 = (int)round(60 * $paste_weight);
-                    $score += $s1; $signal_pts[1] = $s1;
+                    $score += $s1;
+                    $signal_pts[1] = $s1;
                 } elseif ($paste_chars_known > 0 && $text_chars > 0) {
                     // Mixed session with measurable paste size: weight proportionally.
                     $paste_frac = $paste_frac_raw;
@@ -825,19 +826,22 @@ class analyser {
                         // Meaningful paste (≥5 % of answer): guarantee MEDIUM (30 pts floor).
                         // PASTE-WEIGHT (v1.2.212): scale floor and ceiling by paste_weight.
                         $s1 = (int)round(max(30.0 * $paste_weight, 60.0 * $paste_frac * $paste_weight));
-                        $score += $s1; $signal_pts[1] = $s1;
+                        $score += $s1;
+                        $signal_pts[1] = $s1;
                     } else {
                         // Incidental paste (<5 % of answer — autocorrect, short snippet).
                         // PASTE-WEIGHT (v1.2.212): scale by paste_weight.
                         $s1 = (int)round(10 * $paste_weight);
-                        $score += $s1; $signal_pts[1] = $s1;
+                        $score += $s1;
+                        $signal_pts[1] = $s1;
                     }
                 } else {
                     // Paste detected but size unknown (TinyMCE clipboard unreadable) or
                     // no finaltext: conservative full signal.
                     // PASTE-WEIGHT (v1.2.212): scale by admin-configured multiplier.
                     $s1 = (int)round(60 * $paste_weight);
-                    $score += $s1; $signal_pts[1] = $s1;
+                    $score += $s1;
+                    $signal_pts[1] = $s1;
                 }
             }
 
@@ -850,7 +854,8 @@ class analyser {
             // ----------------------------------------------------------------
             if ($large_inserts > 0) {
                 $s2 = (int)round(min(20, $large_inserts * 8) * $paste_weight);
-                $score += $s2; $signal_pts[2] = $s2;
+                $score += $s2;
+                $signal_pts[2] = $s2;
             }
 
             // ----------------------------------------------------------------
@@ -860,9 +865,11 @@ class analyser {
             // ----------------------------------------------------------------
             $chars_per_sec = ($effective_charsadded * 1000.0) / $session_total_ms;
             if ($chars_per_sec > 15.0 && $effective_charsadded > 50) {
-                $score += 30; $signal_pts[3] = 30;
+                $score += 30;
+                $signal_pts[3] = 30;
             } elseif ($chars_per_sec > 8.0 && $effective_charsadded > 50) {
-                $score += 15; $signal_pts[3] = 15;
+                $score += 15;
+                $signal_pts[3] = 15;
             }
 
             // ----------------------------------------------------------------
@@ -905,7 +912,8 @@ class analyser {
             // no-pause IS genuinely suspicious for a paste session.
             $s4_has_evidence = ($total_keystrokes > 0 || $pastecount > 0 || $large_inserts > 0);
             if ($pausecount === 0 && $s4_chars > 100 && $s4_has_evidence) {
-                $score += 20; $signal_pts[4] = 20;
+                $score += 20;
+                $signal_pts[4] = 20;
             }
 
             // ----------------------------------------------------------------
@@ -938,11 +946,14 @@ class analyser {
                                  || ($text_chars > 100 && $keystroke_ratio_val < 0.25))
                              && !$partial_paste_only;
             if ($is_paste_session) {
-                $score += 15; $signal_pts[5] = 15; // Pure paste: no manual corrections whatsoever
+                $score += 15; // Pure paste: no manual corrections whatsoever
+                $signal_pts[5] = 15;
             } elseif ($total_keystrokes > 0 && $backspace_ratio < 0.02) {
-                $score += 15; $signal_pts[5] = 15;
+                $score += 15;
+                $signal_pts[5] = 15;
             } elseif ($total_keystrokes > 0 && $backspace_ratio < 0.04) {
-                $score += 8; $signal_pts[5] = 8;
+                $score += 8;
+                $signal_pts[5] = 8;
             }
 
             // ----------------------------------------------------------------
@@ -953,7 +964,8 @@ class analyser {
             // and are already covered by Signals 1 + 3 + 4 + 5.
             // ----------------------------------------------------------------
             if ($typing_time > 0 && $typing_time < 10000 && $effective_charsadded > 50) {
-                $score += 25; $signal_pts[6] = 25;
+                $score += 25;
+                $signal_pts[6] = 25;
             }
 
             // ----------------------------------------------------------------
@@ -966,18 +978,23 @@ class analyser {
             // short sessions. Pure paste sessions still get the full bonus.
             // ----------------------------------------------------------------
             if ($is_paste_session) {
-                $score += 10; $signal_pts[7] = 10; // Pure paste: no rhythm data = max entropy suspicion
+                $score += 10; // Pure paste: no rhythm data = max entropy suspicion
+                $signal_pts[7] = 10;
             } elseif ($iki_shannon > 0 && count($ikdelays) >= 30) {
                 // Shannon entropy available — use TypeShield's threshold.
                 if ($iki_shannon < 0.35) {
-                    $score += 10; $signal_pts[7] = 10;
+                    $score += 10;
+                    $signal_pts[7] = 10;
                 } elseif ($iki_shannon < 0.55) {
-                    $score += 5; $signal_pts[7] = 5;
+                    $score += 5;
+                    $signal_pts[7] = 5;
                 }
             } elseif ($entropy_score > 0 && $entropy_score < 0.3) {
-                $score += 10; $signal_pts[7] = 10;
+                $score += 10;
+                $signal_pts[7] = 10;
             } elseif ($entropy_score > 0 && $entropy_score < 0.5) {
-                $score += 5; $signal_pts[7] = 5;
+                $score += 5;
+                $signal_pts[7] = 5;
             }
 
             // ----------------------------------------------------------------
@@ -991,9 +1008,11 @@ class analyser {
             // ----------------------------------------------------------------
             if (!$events_empty_for_scoring) {
                 if ($sentence_variance > 0 && $sentence_variance < 6) {
-                    $score += 10; $signal_pts[8] = 10;
+                    $score += 10;
+                    $signal_pts[8] = 10;
                 } elseif ($sentence_variance > 0 && $sentence_variance < 12) {
-                    $score += 5; $signal_pts[8] = 5;
+                    $score += 5;
+                    $signal_pts[8] = 5;
                 }
             }
 
@@ -1006,9 +1025,11 @@ class analyser {
             // ----------------------------------------------------------------
             if (!$events_empty_for_scoring) {
                 if ($vocab_diversity > 0 && $vocab_diversity < 0.30) {
-                    $score += 5; $signal_pts[9] = 5;
+                    $score += 5;
+                    $signal_pts[9] = 5;
                 } elseif ($vocab_diversity > 0 && $vocab_diversity < 0.40) {
-                    $score += 2; $signal_pts[9] = 2;
+                    $score += 2;
+                    $signal_pts[9] = 2;
                 }
             }
 
@@ -1021,9 +1042,11 @@ class analyser {
             if (count($ikdelays) >= 30) {
                 $autocorr_dev = abs($iki_autocorr - 0.1);
                 if ($autocorr_dev > 0.5) {
-                    $score += 10; $signal_pts[10] = 10;
+                    $score += 10;
+                    $signal_pts[10] = 10;
                 } elseif ($autocorr_dev > 0.3) {
-                    $score += 5; $signal_pts[10] = 5;
+                    $score += 5;
+                    $signal_pts[10] = 5;
                 }
             }
 
@@ -1035,9 +1058,11 @@ class analyser {
             // ----------------------------------------------------------------
             if (count($wpm_snapshots) >= 3 && $typing_time >= 30000) {
                 if ($speed_cv < 0.30) {
-                    $score += 10; $signal_pts[11] = 10;
+                    $score += 10;
+                    $signal_pts[11] = 10;
                 } elseif ($speed_cv < 0.50) {
-                    $score += 5; $signal_pts[11] = 5;
+                    $score += 5;
+                    $signal_pts[11] = 5;
                 }
             }
 
@@ -1052,9 +1077,11 @@ class analyser {
             if ($text_chars > 100 && $total_keystrokes > 0) {
                 $keystroke_ratio = $total_keystrokes / max(1, $text_chars);
                 if ($keystroke_ratio < 0.5) {
-                    $score += 10; $signal_pts[12] = 10;
+                    $score += 10;
+                    $signal_pts[12] = 10;
                 } elseif ($keystroke_ratio < 0.8) {
-                    $score += 5; $signal_pts[12] = 5;
+                    $score += 5;
+                    $signal_pts[12] = 5;
                 }
             }
         }
@@ -1134,10 +1161,12 @@ class analyser {
             //   Multiple varied sentences (variance ≥ 6.0)   → count >= 1 AND >= 6.0    →   0 ✓
             //   No text parsed (count = 0, variance = 0.0)   → count = 0                →   0 ✓
             if ($sentence_count_ling >= 1 && $sentence_variance < 6.0)  {
-                $score += 20; $linguistic_fallback_pts += 20;
+                $score += 20;
+                $linguistic_fallback_pts += 20;
             }
             if ($vocab_diversity   > 0.0 && $vocab_diversity   < 0.30) {
-                $score += 15; $linguistic_fallback_pts += 15;
+                $score += 15;
+                $linguistic_fallback_pts += 15;
             }
         }
 
@@ -1309,7 +1338,7 @@ class analyser {
             $score = min(100.0, $score + ($baseline_deviation * 15));
         }
 
-        // v1.2.113: Persist per-signal breakdown so student.php can show a
+        // V1.2.113: Persist per-signal breakdown so student.php can show a
         // TypeShield-quality signal attribution table. Values reflect raw
         // contributions before the false-positive cap; the final score100 may
         // be lower than array_sum($signal_pts) when the cap fires.
