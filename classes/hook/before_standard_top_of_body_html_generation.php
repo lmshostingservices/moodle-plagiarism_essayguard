@@ -16,8 +16,6 @@
 
 namespace plagiarism_essayguard\hook;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Hook callback for core\hook\output\before_standard_top_of_body_html_generation.
  *
@@ -37,7 +35,7 @@ defined('MOODLE_INTERNAL') || die();
  * deprecation path.
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class before_standard_top_of_body_html_generation {
@@ -45,7 +43,9 @@ class before_standard_top_of_body_html_generation {
      * Ensure lib.php is loaded so plagiarism_essayguard_before_standard_top_of_body_html()
      * is defined before plagiarism_update_status() calls function_exists().
      *
-     * @param \core\hook\output\before_standard_top_of_body_html_generation $hook
+     * @param \core\hook\output\before_standard_top_of_body_html_generation $hook The hook
+     *        instance dispatched by Moodle at the top of the page body.
+     * @return void
      */
     public static function callback(
         \core\hook\output\before_standard_top_of_body_html_generation $hook

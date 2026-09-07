@@ -19,7 +19,7 @@
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
@@ -32,17 +32,18 @@ $functions = [
         'description' => 'Logs buffered Essay Guard telemetry from the browser.',
         'type'        => 'write',
         'ajax'        => true,
-        'capabilities'=> '',
+        'capabilities' => '',
     ],
 
     'plagiarism_essayguard_finalize_attempt' => [
         'classname'   => 'plagiarism_essayguard\\external\\finalize_attempt',
         'methodname'  => 'execute',
         'classpath'   => '',
-        'description' => 'Finalizes an Essay Guard attempt: runs full linguistic + behavioural analysis, updates student fingerprint, and returns the complete authenticity report.',
+        'description' => 'Finalizes an Essay Guard attempt: runs full linguistic + behavioural analysis, updates '
+            . 'student fingerprint, and returns the complete authenticity report.',
         'type'        => 'write',
         'ajax'        => true,
-        'capabilities'=> '',
+        'capabilities' => '',
     ],
 
     // V1.2.54 BUG-EG-NO-BADGE-OVERVIEW: Batch badge fetch for reporter.js
@@ -52,9 +53,10 @@ $functions = [
         'classname'   => 'plagiarism_essayguard\\external\\get_badges',
         'methodname'  => 'execute',
         'classpath'   => '',
-        'description' => 'Returns Essay Guard risk badge data (risklevel, score) for one or more students in a given activity. Used by reporter.js to inject badges into the quiz grading overview table.',
+        'description' => 'Returns Essay Guard risk badge data (risklevel, score) for one or more students in a given '
+            . 'activity. Used by reporter.js to inject badges into the quiz grading overview table.',
         'type'        => 'read',
         'ajax'        => true,
-        'capabilities'=> 'plagiarism/essayguard:viewreport',
+        'capabilities' => 'plagiarism/essayguard:viewreport',
     ],
 ];

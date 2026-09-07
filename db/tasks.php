@@ -19,7 +19,7 @@
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
@@ -37,11 +37,25 @@ $tasks = [
     // FIX-EG-RESCORE-TASK (v1.2.96): Re-score attempts where events arrived after
     // the observer had already written riskscore=0. Runs every 5 minutes.
     // NOTE: Moodle's eval_cron_field() does NOT support 'R/5' (random+step).
-    //       Use '*/5' for every-5-minutes; use 'R' only as a standalone value.
+    // Use '*/5' for every-5-minutes; use 'R' only as a standalone value.
     [
         'classname' => 'plagiarism_essayguard\\task\\rescore_pending',
         'blocking'   => 0,
         'minute'     => '*/5',
+        'hour'       => '*',
+        'day'        => '*',
+        'dayofweek'  => '*',
+        'month'      => '*',
+    ],
+    // V1.2.219: The licence-verify and platform-settings HTTPS calls to lms-labs.com
+    // used to happen inline on whichever unlucky page request found the 30-minute cache
+    // expired — including quiz submission and every grading-page render. They now happen
+    // here, off the request path, and the request path reads the cache only.
+    // Every 15 minutes so the 30-minute cache is always refreshed before it goes stale.
+    [
+        'classname'  => 'plagiarism_essayguard\\task\\refresh_licence',
+        'blocking'   => 0,
+        'minute'     => '*/15',
         'hour'       => '*',
         'day'        => '*',
         'dayofweek'  => '*',

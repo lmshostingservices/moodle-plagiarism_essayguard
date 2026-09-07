@@ -14,86 +14,59 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-defined('MOODLE_INTERNAL') || die();
-
-// FIX-EG-EARLY-FUNCTION (v1.2.196): Define the replacement hook function at the very
-// TOP of lib.php — before any class definitions, helper functions, or other code.
-//
-// Root cause of all prior failed fix attempts:
-//   Moodle's plagiarism_update_status() (plagiarismlib.php) checks
-//   function_exists('plagiarism_essayguard_before_standard_top_of_body_html') FIRST.
-//   If it returns FALSE, the deprecation warning fires IMMEDIATELY — before Moodle
-//   does require_once(lib.php). So no matter where in lib.php the function was
-//   defined, it was too late: the warning had already fired.
-//
-// Hook-based pre-loading (db/hooks.php) was also the right idea but relied on the
-// Moodle hook registry cache being fresh. With a stale cache the hook callbacks
-// never fire, lib.php never gets pre-loaded, and the warning fires on every page.
-//
-// This fix is cache-independent: the function is now defined at the very first line
-// of real code in lib.php. Whether lib.php is loaded by the hook callback OR by
-// plagiarism_update_status()'s own require_once() fallback, this function is
-// defined before control ever returns to plagiarism_update_status() for its check.
-//
-// The function_exists() guard prevents "Cannot redeclare" if lib.php is somehow
-// included more than once (e.g. two require_once calls racing on an opcode-cache miss).
-if (!function_exists('plagiarism_essayguard_before_standard_top_of_body_html')) {
-    /**
-     * Replacement for the deprecated plagiarism_plugin::update_status() hook.
-     * No-op: actual tracker injection is handled by inject_tracker() via the
-     * before_standard_head_html_generation hook callback in classes/hook/.
-     * This function's sole purpose is to make function_exists() return TRUE so
-     * plagiarism_update_status() calls it directly and never reaches the deprecated
-     * update_status() / ReflectionMethod branch — suppressing the warning entirely.
+/**
+ * Essay Guard plagiarism plugin library: the callbacks Moodle core looks for by name.
+ *
+ * Moodle loads this file on essentially every page through the plagiarism dispatcher, so
+ * everything here is kept cheap and side-effect free. It provides the plugin-enablement
+ * checks, the per-activity settings form elements, the student disclosure, the tracker
+ * injection, the answer-to-question-slot matcher and the risk badge renderer, plus an
+ * spl_autoload_register() that defers defining plagiarism_plugin_essayguard until first use.
+ *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-    function plagiarism_essayguard_before_standard_top_of_body_html() {}
-}
 
-// NUCLEAR-SUPPRESS (v1.2.198): Belt-and-suspenders error suppressor.
+defined('MOODLE_INTERNAL') || die();
+
+// V1.2.219: GLOBAL ERROR HANDLER REMOVED, LEGACY CALLBACK FUNCTION REMOVED.
 //
-// Problem: Two PHP deprecation/notice strings can appear as HTML debug boxes on
-// any Moodle page in developer debug mode (debugdisplay=1), regardless of whether
-// the hook callbacks fire or the early function_exists() trick succeeds:
+// What was here (v1.2.196–v1.2.198) and why it had to go:
 //
-//   (A) "plagiarism_plugin::update_status() is deprecated" — fires when Moodle's
-//       plagiarism_update_status() reaches the ReflectionMethod branch because it
-//       loaded lib.php before plagiarismlib.php (stale hook cache race condition).
+// 1. A global no-op function plagiarism_essayguard_before_standard_top_of_body_html(),
+// defined purely so Moodle's function_exists() check would short-circuit before it
+// reached the deprecated update_status() branch. Moodle's get_plugins_with_function()
+// then emitted "Callback ... should be migrated" for it, so this fix traded one
+// developer notice for another.
 //
-//   (B) "Callback plagiarism_essayguard_before_standard_top_of_body_html should be
-//       migrated" — fires when get_plugins_with_function() finds the global function
-//       defined in lib.php (our early-function fix) and emits a migration notice.
+// 2. set_error_handler('_eg_warning_suppressor', ...) at FILE SCOPE. lib.php is loaded
+// on essentially every page of the site, so this replaced Moodle's own error handler
+// for E_WARNING / E_NOTICE / E_DEPRECATED / E_USER_DEPRECATED site-wide, for every
+// plugin and every core subsystem, for the whole request. Any other component's
+// warning was routed through EssayGuard's two-string strcmp and then handed to PHP's
+// default handler instead of Moodle's — losing Moodle's backtrace, its debugdisplay
+// handling and its error reporting integration. A plagiarism plugin has no business
+// owning the site's error handler, and it was also a lie: the notice it claimed to
+// suppress is written by Moodle's debugging(), which echoes HTML directly and never
+// passes through set_error_handler() at all.
 //
-// All prior fixes (early-function, hook preloading, conditional extends) work in
-// 99% of cases but are cache- and timing-dependent. A single stale hook registry
-// entry or an unusual theme that delays $OUTPUT->header() is enough to trigger a
-// warning on a specific page.
+// The cause is already fixed properly, further down this file: the spl_autoload_register
+// block (FIX-EG-AUTOLOAD, v1.2.206) defers the plagiarism_plugin_essayguard class
+// definition until first use, by which point plagiarism_plugin always exists, so the
+// class genuinely extends it and INHERITS update_status(). Moodle's ReflectionMethod
+// check then sees getDeclaringClass() === 'plagiarism_plugin' and never calls debugging().
+// With the real cause fixed, both the stub function and the suppressor are dead weight.
 //
-// This suppressor is the final catch-all: it intercepts E_DEPRECATED / E_NOTICE
-// errors at the PHP runtime level and actively SUPPRESSES (return true) the two
-// specific EssayGuard-owned strings — so they can NEVER appear on the page in any
-// configuration, debug level, or load order.
-//
-// For ALL other PHP errors/warnings this handler returns false, meaning PHP's
-// normal error handling chain continues unchanged.
-//
-// The function_exists() guard prevents "Cannot redeclare" on opcode cache hits.
-if (!function_exists('_eg_warning_suppressor')) {
-    function _eg_warning_suppressor(int $errno, string $errstr): bool {
-        if (strpos($errstr, 'plagiarism_plugin::update_status() is deprecated') !== false
-            || strpos($errstr, 'plagiarism_essayguard_before_standard_top_of_body_html') !== false) {
-            return true; // fully handled — PHP must NOT pass this to its normal handler
-        }
-        return false; // all other errors: pass through normally
-    }
-}
-set_error_handler('_eg_warning_suppressor', E_DEPRECATED | E_NOTICE | E_USER_DEPRECATED | E_WARNING);
+// The before_standard_top_of_body_html_generation hook in db/hooks.php remains registered
+// and handles that event through the supported hook API.
 
 
 /**
  * Get Site ID: Central Config (local_aiconfig) takes priority over local setting.
+ *
+ * @return string|false The site ID to authenticate with lms-labs.com, or false when
+ *                      neither local_aiconfig nor this plugin has one saved.
  */
 function plagiarism_essayguard_get_siteid() {
     $aiconfig = get_config('local_aiconfig', 'siteid');
@@ -105,6 +78,9 @@ function plagiarism_essayguard_get_siteid() {
 
 /**
  * Get API Key: Central Config (local_aiconfig) takes priority over local setting.
+ *
+ * @return string|false The API key to authenticate with lms-labs.com, or false when
+ *                      neither local_aiconfig nor this plugin has one saved.
  */
 function plagiarism_essayguard_get_apikey() {
     $aiconfig = get_config('local_aiconfig', 'apikey');
@@ -115,25 +91,66 @@ function plagiarism_essayguard_get_apikey() {
 }
 
 /**
- * Verify credit unlock with AI Grader server.
+ * Verify credit unlock with the LMS Labs licence server.
  *
- * Result is cached for 30 minutes in Moodle's config table so only one
- * HTTP request is made per 30-minute window across all PHP workers,
- * rather than one live request per page load.
+ * Result is cached for 30 minutes in Moodle's config table.
+ *
+ * v1.2.219: SYNCHRONOUS VENDOR CALL REMOVED FROM THE REQUEST PATH.
+ *
+ * Previously any caller with a stale cache performed the fetch itself: a 10 s
+ * verify call which, if the site was not yet unlocked, chained into auto_unlock()
+ * for a further 15 s. The callers are is_cm_active() — which runs on every grading
+ * page render — and observer::is_active(), which runs inside quiz submission. So
+ * one unlucky student pressing "Submit all and finish" at the moment the cache
+ * expired paid up to 25 s of vendor network latency inside their submit request,
+ * and every other student who hit the same expiry window queued behind it. Worse,
+ * the whole cohort's caches expire together, so this stampedes.
+ *
+ * Now the request path is cache-only: it never opens a socket. The refresh is done
+ * by \plagiarism_essayguard\task\refresh_licence (see db/tasks.php), which runs
+ * from cron every 15 minutes and is the only caller that passes $allowfetch = true,
+ * apart from the admin settings page where the admin explicitly asked for a live
+ * check. A stale cache is served as-is rather than triggering a fetch, and a site
+ * with no cache at all fails open (returns true) exactly as before.
+ *
+ * MIGRATION CONSEQUENCE: cron must be running for licence state to refresh. On a
+ * site with broken cron the last cached result is served indefinitely; because the
+ * behaviour is fail-open, that means scoring keeps working rather than stopping.
+ *
+ * @param bool $allowfetch True only from cron/the admin settings page.
+ * @return bool
  */
-function plagiarism_essayguard_check_unlock() {
+function plagiarism_essayguard_check_unlock(bool $allowfetch = false) {
     global $CFG;
-    static $runtime_cache = null;
-    if ($runtime_cache !== null) {
-        return $runtime_cache;
+    static $runtimecache = null;
+    // V1.2.229 FIX-EG-STATIC-CACHE-UNTESTABLE: a function-level static survives
+    // phpunit_util::reset_all_data(), so the first value computed in a PHPUnit process
+    // was returned to every later test in that process no matter what the test had
+    // configured. That made the unlock gate - the gate that decides whether ANY scoring
+    // happens - impossible to cover, which is why it had no test. In production each
+    // request is a fresh process and the static is exactly the per-request memoisation
+    // it was meant to be, so this changes nothing a site ever sees.
+    if (defined('PHPUNIT_TEST') && PHPUNIT_TEST) {
+        $runtimecache = null;
+    }
+    if ($runtimecache !== null && !$allowfetch) {
+        return $runtimecache;
     }
 
     // Persistent cache: valid for 30 minutes across all PHP workers.
-    $cached_result = get_config('plagiarism_essayguard', 'unlock_cache_result');
-    $cached_time   = (int)get_config('plagiarism_essayguard', 'unlock_cache_time');
-    if ($cached_time > 0 && (time() - $cached_time) < 1800) {
-        $runtime_cache = !empty($cached_result);
-        return $runtime_cache;
+    $cachedresult = get_config('plagiarism_essayguard', 'unlock_cache_result');
+    $cachedtime   = (int)get_config('plagiarism_essayguard', 'unlock_cache_time');
+    if (!$allowfetch && $cachedtime > 0 && (time() - $cachedtime) < 1800) {
+        $runtimecache = !empty($cachedresult);
+        return $runtimecache;
+    }
+
+    if (!$allowfetch) {
+        // V1.2.219: Cache is stale or empty and we are on a request path. Do NOT fetch.
+        // Serve the last known answer; with no cached answer at all, fail open so a
+        // brand-new site is not blocked waiting for the first cron run.
+        $runtimecache = ($cachedtime > 0) ? !empty($cachedresult) : true;
+        return $runtimecache;
     }
 
     $siteid = plagiarism_essayguard_get_siteid();
@@ -144,10 +161,13 @@ function plagiarism_essayguard_check_unlock() {
         // open/development mode rather than blocking all scoring. Admins who have not
         // yet entered their Site ID and API Key will still get full Essay Guard
         // functionality; the plugin simply skips the remote license check.
-        error_log('[plagiarism_essayguard] check_unlock: siteId or apiKey not configured.'
-            . ' Operating in open mode. Configure via Site Administration → Plugins'
-            . ' → Plagiarism → Essay Guard to enable license-based usage tracking.');
-        $runtime_cache = true;
+        debugging(
+            '[plagiarism_essayguard] check_unlock: siteId or apiKey not configured.'
+                . ' Operating in open mode. Configure via Site Administration → Plugins'
+                . ' → Plagiarism → Essay Guard to enable license-based usage tracking.',
+            DEBUG_DEVELOPER
+        );
+        $runtimecache = true;
         return true;
     }
 
@@ -175,22 +195,28 @@ function plagiarism_essayguard_check_unlock() {
         'CURLOPT_TIMEOUT'        => 10,
         'CURLOPT_CONNECTTIMEOUT' => 5,
     ]);
-    $response  = $curl->get('https://lms-labs.com/api/plugin-unlock/verify', [
-        'pluginId' => 'essayguard',
-        'siteId'   => $siteid,
-        'apiKey'   => $apikey,
-    ]);
-    $http_code = (int)($curl->info['http_code'] ?? 0);
+    $response  = $curl->get(
+        'https://lms-labs.com/api/plugin-unlock/verify',
+        [
+            'pluginId' => 'essayguard',
+            'siteId'   => $siteid,
+            'apiKey'   => $apikey,
+            ]
+    );
+    $httpcode = (int)($curl->info['http_code'] ?? 0);
 
-    if ($http_code !== 200 || !$response) {
+    if ($httpcode !== 200 || !$response) {
         // FIX-EG-UNLOCK-OPEN (v1.2.50): Fail-open on network/HTTP errors.
         // Previously returned false, which silently blocked all scoring and badge
         // display whenever the license server was unreachable (firewall, timeout, etc.).
         // Now logs the error but returns true so scoring continues uninterrupted.
-        error_log('[plagiarism_essayguard] check_unlock: cannot reach license server'
-            . ' (HTTP ' . $http_code . ', siteId=' . $siteid . ').'
-            . ' Operating in open mode — scoring will continue.');
-        $runtime_cache = true;
+        debugging(
+            '[plagiarism_essayguard] check_unlock: cannot reach license server'
+                . ' (HTTP ' . $httpcode . ', siteId=' . $siteid . ').'
+                . ' Operating in open mode — scoring will continue.',
+            DEBUG_DEVELOPER
+        );
+        $runtimecache = true;
         return true;
     }
 
@@ -201,20 +227,28 @@ function plagiarism_essayguard_check_unlock() {
         // Not yet unlocked — attempt automatic unlock (deducts 5,000 credits).
         // This fires once per site: after success the verify endpoint returns
         // unlocked=true so this branch is never reached again.
-        error_log('[plagiarism_essayguard] check_unlock: site not unlocked — attempting auto-unlock. siteId=' . $siteid);
+        debugging(
+            '[plagiarism_essayguard] check_unlock: site not unlocked — attempting auto-unlock. siteId='
+                . $siteid,
+            DEBUG_DEVELOPER
+        );
         $result = plagiarism_essayguard_auto_unlock($siteid, $apikey);
         if ($result) {
-            error_log('[plagiarism_essayguard] auto-unlock SUCCESS — 5,000 credits deducted. siteId=' . $siteid);
+            debugging('[plagiarism_essayguard] auto-unlock SUCCESS — 5,000 credits deducted. siteId=' . $siteid, DEBUG_DEVELOPER);
         } else {
-            error_log('[plagiarism_essayguard] auto-unlock FAILED — check credits balance or API key. siteId=' . $siteid);
+            debugging(
+                '[plagiarism_essayguard] auto-unlock FAILED — check credits balance or API key. siteId='
+                    . $siteid,
+                DEBUG_DEVELOPER
+            );
         }
     }
 
     // Persist result for 30 minutes.
     set_config('unlock_cache_result', (int)$result, 'plagiarism_essayguard');
-    set_config('unlock_cache_time',   time(),        'plagiarism_essayguard');
+    set_config('unlock_cache_time', time(), 'plagiarism_essayguard');
 
-    $runtime_cache = $result;
+    $runtimecache = $result;
     return $result;
 }
 
@@ -222,6 +256,10 @@ function plagiarism_essayguard_check_unlock() {
  * Automatically unlock Essay Guard for this site by posting to the
  * EssayGraderAI platform. Deducts 5,000 credits from the site's balance.
  * Returns true on success, false on failure (e.g. insufficient credits).
+ *
+ * @param string $siteid The site licence identifier.
+ * @param string $apikey The site API key.
+ * @return bool True when the site is now unlocked.
  */
 function plagiarism_essayguard_auto_unlock(string $siteid, string $apikey): bool {
     global $CFG;
@@ -248,15 +286,19 @@ function plagiarism_essayguard_auto_unlock(string $siteid, string $apikey): bool
     }
     require_once($CFG->libdir . '/filelib.php');
     $curl = new \curl();
-    $response  = $curl->post('https://lms-labs.com/api/plugin-unlock', $payload, [
-        'CURLOPT_TIMEOUT'        => 15,
-        'CURLOPT_CONNECTTIMEOUT' => 5,
-        'CURLOPT_HTTPHEADER'     => ['Content-Type: application/json', 'Accept: application/json'],
-    ]);
-    $http_code = (int)($curl->info['http_code'] ?? 0);
+    $response  = $curl->post(
+        'https://lms-labs.com/api/plugin-unlock',
+        $payload,
+        [
+            'CURLOPT_TIMEOUT'        => 15,
+            'CURLOPT_CONNECTTIMEOUT' => 5,
+            'CURLOPT_HTTPHEADER'     => ['Content-Type: application/json', 'Accept: application/json'],
+            ]
+    );
+    $httpcode = (int)($curl->info['http_code'] ?? 0);
 
-    if ($http_code !== 200 || !$response) {
-        error_log('[plagiarism_essayguard] auto_unlock HTTP error: ' . $http_code . ' siteId=' . $siteid);
+    if ($httpcode !== 200 || !$response) {
+        debugging('[plagiarism_essayguard] auto_unlock HTTP error: ' . $httpcode . ' siteId=' . $siteid, DEBUG_DEVELOPER);
         return false;
     }
 
@@ -280,10 +322,24 @@ function plagiarism_essayguard_auto_unlock(string $siteid, string $apikey): bool
  *   docguard_assignments   (bool) – enable DocGuard for all assignments
  *   docguard_quizzes       (bool) – enable DocGuard for all quizzes
  * Cached for 30 minutes in Moodle config. Fails open (all false) on any error.
+ *
+ * v1.2.219: Same treatment as check_unlock() — the request path is cache-only.
+ * is_cm_active() calls this on every grading-page render, so a 5 s vendor GET on
+ * cache expiry landed directly in page render time. Only the refresh_licence
+ * scheduled task and the admin settings page pass $allowfetch = true. A stale
+ * cache is served as-is; with no cache at all the safe defaults (all false) apply,
+ * which is exactly what the old code returned on a network failure anyway.
+ *
+ * @param bool $allowfetch True only from cron/the admin settings page.
+ * @return array
  */
-function plagiarism_essayguard_get_platform_settings(): array {
+function plagiarism_essayguard_get_platform_settings(bool $allowfetch = false): array {
     static $cached = null;
-    if ($cached !== null) {
+    // V1.2.229 FIX-EG-STATIC-CACHE-UNTESTABLE: see plagiarism_essayguard_check_unlock().
+    if (defined('PHPUNIT_TEST') && PHPUNIT_TEST) {
+        $cached = null;
+    }
+    if ($cached !== null && !$allowfetch) {
         return $cached;
     }
 
@@ -295,16 +351,22 @@ function plagiarism_essayguard_get_platform_settings(): array {
     ];
 
     // Check 30-minute Moodle config cache.
-    $cache_time = (int)get_config('plagiarism_essayguard', 'platform_settings_time');
-    if ($cache_time > 0 && (time() - $cache_time) < 1800) {
-        $cached_data = get_config('plagiarism_essayguard', 'platform_settings_data');
-        if (!empty($cached_data)) {
-            $decoded = json_decode($cached_data, true);
-            if (is_array($decoded)) {
-                $cached = $decoded;
-                return $cached;
-            }
+    $cacheddata = get_config('plagiarism_essayguard', 'platform_settings_data');
+    $cachetime  = (int)get_config('plagiarism_essayguard', 'platform_settings_time');
+    if (!$allowfetch && $cachetime > 0 && !empty($cacheddata)) {
+        // V1.2.219: Note the missing freshness test is deliberate on this path — a stale
+        // cached answer is still better than a synchronous HTTPS call during page render.
+        $decoded = json_decode($cacheddata, true);
+        if (is_array($decoded)) {
+            $cached = $decoded;
+            return $cached;
         }
+    }
+
+    if (!$allowfetch) {
+        // No usable cache and we are on a request path: return defaults, never fetch.
+        $cached = $defaults;
+        return $cached;
     }
 
     $siteid = plagiarism_essayguard_get_siteid();
@@ -328,11 +390,14 @@ function plagiarism_essayguard_get_platform_settings(): array {
         }
         $curl = new \curl();
         $curl->setopt(['CURLOPT_TIMEOUT' => 5, 'CURLOPT_CONNECTTIMEOUT' => 3]);
-        $response  = $curl->get('https://lms-labs.com/api/plagiarism-settings', [
-            'siteId' => $siteid, 'apiKey' => $apikey,
-        ]);
-        $http_code = (int)($curl->info['http_code'] ?? 0);
-        if ($http_code === 200 && !empty($response)) {
+        $response  = $curl->get(
+            'https://lms-labs.com/api/plagiarism-settings',
+            [
+                'siteId' => $siteid, 'apiKey' => $apikey,
+                ]
+        );
+        $httpcode = (int)($curl->info['http_code'] ?? 0);
+        if ($httpcode === 200 && !empty($response)) {
             $data = json_decode($response, true);
             if (is_array($data) && isset($data['settings'])) {
                 $s = $data['settings'];
@@ -343,19 +408,35 @@ function plagiarism_essayguard_get_platform_settings(): array {
                     'docguard_quizzes'       => !empty($s['docguardQuizzesEnabled']),
                 ];
                 set_config('platform_settings_data', json_encode($result), 'plagiarism_essayguard');
-                set_config('platform_settings_time', time(),               'plagiarism_essayguard');
+                set_config('platform_settings_time', time(), 'plagiarism_essayguard');
                 $cached = $result;
                 return $cached;
             }
         }
     } catch (\Throwable $e) {
-        // Fail open — do not crash Moodle pages on network issues.
+        // Fail open — do not crash Moodle pages on network issues. The defaults below are
+        // returned instead, but log the cause at developer level so an administrator asking
+        // "why is the site-wide platform flag not applying?" has something to find.
+        debugging(
+            'Essay Guard: could not fetch platform settings from lms-labs.com — '
+                . $e->getMessage(),
+            DEBUG_DEVELOPER
+        );
     }
 
     $cached = $defaults;
     return $cached;
 }
 
+/**
+ * Whether Essay Guard should track and score submissions to one activity.
+ *
+ * A site-wide "all assignments" or "all quizzes" flag set on the lms-labs.com
+ * platform overrides the per-activity checkbox; otherwise the checkbox decides.
+ *
+ * @param int $cmid The course module to test.
+ * @return bool True when Essay Guard is active for that activity.
+ */
 function plagiarism_essayguard_is_cm_active(int $cmid): bool {
     // FIX-EG-SITEWIDE-SETTINGS (v1.2.176): Check platform site-wide settings first.
     // If the admin enabled Essay Guard for all assignments or all quizzes on the
@@ -374,21 +455,128 @@ function plagiarism_essayguard_is_cm_active(int $cmid): bool {
             }
         }
     } catch (\Throwable $e) {
-        // Ignore — fall through to per-cm check.
+        // Ignore — fall through to the per-cm checkbox check below. A failed platform
+        // lookup must never make an activity page fatal, but record why at developer
+        // level: silently skipping the site-wide override is otherwise undiagnosable.
+        debugging(
+            'Essay Guard: platform settings lookup failed for cmid ' . $cmid . ' — '
+                . $e->getMessage(),
+            DEBUG_DEVELOPER
+        );
     }
 
     $value = get_config('plagiarism_essayguard', 'enabled_cm_' . $cmid);
-    // Note: get_config() returns false when the key has never been saved.
-    // Treat missing = active so badges still appear on pre-existing assignments.
+    /* The get_config() call returns false when the key has never been saved.
+     * Treat missing = active so badges still appear on pre-existing assignments.
+     */
     return ($value === false) || !empty($value);
+}
+
+/**
+ * v1.2.219: Declare the user preferences this plugin writes.
+ *
+ * inject_tracker() calls set_user_preference('essayguard_ak_<cmid>', ...) to remember
+ * which typing-session key belongs to which activity, so observer.php can find the
+ * events at submission time. That preference was never declared to core, never exported
+ * on a data-subject-access request, and never deleted on an erasure request. Undeclared
+ * preferences also trip Moodle's own privacy self-test.
+ *
+ * The name is dynamic (one per course module), so it is declared as a regexp preference.
+ * permissioncallback is set to disallow: nothing should be able to write this over AJAX,
+ * only our own server-side code writes it.
+ *
+ * @return array
+ */
+function plagiarism_essayguard_user_preferences(): array {
+    return [
+        'essayguard_ak_.*' => [
+            'isregexp'           => true,
+            'null'               => NULL_NOT_ALLOWED,
+            'default'            => '',
+            'type'               => PARAM_ALPHANUMEXT,
+            'permissioncallback' => 'plagiarism_essayguard_pref_never_writable',
+        ],
+        // V1.2.219: written by log_event.php as the per-attempt scoring throttle marker.
+        'essayguard_lastscore_.*' => [
+            'isregexp'           => true,
+            'null'               => NULL_NOT_ALLOWED,
+            'default'            => '0',
+            'type'               => PARAM_INT,
+            'permissioncallback' => 'plagiarism_essayguard_pref_never_writable',
+        ],
+    ];
+}
+
+/**
+ * v1.2.219: Permission callback for the essayguard_ak_* preferences.
+ * Always false: these are written by inject_tracker() server-side only. Nothing should
+ * be able to set or clear its own attempt key over the user-preference AJAX endpoint —
+ * a student who could rewrite it would detach their telemetry from their submission.
+ *
+ * @param \stdClass $user The user whose preference is being written.
+ * @param string $preferencename The name of the essayguard_ak_* preference being written.
+ * @return bool Always false — the preference is never writable over the AJAX endpoint.
+ */
+function plagiarism_essayguard_pref_never_writable($user, $preferencename): bool {
+    return false;
+}
+
+/**
+ * v1.2.219: Real student-facing disclosure. print_disclosure() previously returned ''.
+ *
+ * Moodle renders this above the submission form. Returning an empty string meant a
+ * student never learned, anywhere in the interface, that this activity records every
+ * keystroke and paste they make and scores it for academic-integrity risk. That is the
+ * one thing a behavioural-telemetry plugin is obliged to say out loud, and on a paying
+ * client's site its absence is a compliance failure, not a cosmetic one.
+ *
+ * The retention period is read from config so the notice cannot drift from what the
+ * cleanup task actually does.
+ *
+ * @param int $cmid Course module id.
+ * @return string HTML, or '' when Essay Guard is not active for this activity.
+ */
+function plagiarism_essayguard_print_disclosure(int $cmid): string {
+    // Say nothing when nothing is being captured.
+    $globalenabled = get_config('plagiarism_essayguard', 'enabled');
+    if ($globalenabled !== false && empty($globalenabled)) {
+        return '';
+    }
+    if ($cmid > 0 && !plagiarism_essayguard_is_cm_active($cmid)) {
+        return '';
+    }
+
+    $retentiondays = (int)get_config('plagiarism_essayguard', 'retentiondays');
+    if ($retentiondays <= 0) {
+        /* The get_config() call returns false for a never-saved key; the cleanup task's own
+         * default is 90 days, so mirror it rather than claiming "kept forever".
+         */
+        $retentiondays = ((string)get_config('plagiarism_essayguard', 'retentiondays') === '0') ? 0 : 90;
+    }
+    $retentiontext = $retentiondays > 0
+        ? get_string('disclosure_retention', 'plagiarism_essayguard', $retentiondays)
+        : get_string('disclosure_retention_indefinite', 'plagiarism_essayguard');
+
+    $out  = \html_writer::start_div('essayguard-disclosure', ['role' => 'note']);
+    $out .= \html_writer::tag('strong', get_string('disclosure_heading', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', get_string('disclosure_what', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', get_string('disclosure_why', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', get_string('disclosure_who', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', $retentiontext);
+    $out .= \html_writer::end_div();
+
+    return $out;
 }
 
 /**
  * Shared tracker injection logic used by both the legacy callback (Moodle < 4.3)
  * and the new hook callback (Moodle 4.3+).
+ *
+ * @return void
  */
 function plagiarism_essayguard_inject_tracker() {
-    global $PAGE, $USER;
+    /* $DB is needed by the v1.2.224 attempt-ownership check below. */
+    global $PAGE, $USER, $DB;
 
     if (isguestuser() || !isloggedin()) {
         return;
@@ -398,8 +586,8 @@ function plagiarism_essayguard_inject_tracker() {
     // plugin settings yet). Treat missing key as enabled — consistent with
     // is_cm_active(). Only skip injection when the key EXISTS and is explicitly
     // set to a disabled value ('0' or empty string).
-    $global_enabled = get_config('plagiarism_essayguard', 'enabled');
-    if ($global_enabled !== false && empty($global_enabled)) {
+    $globalenabled = get_config('plagiarism_essayguard', 'enabled');
+    if ($globalenabled !== false && empty($globalenabled)) {
         return;
     }
     if (during_initial_install()) {
@@ -415,9 +603,9 @@ function plagiarism_essayguard_inject_tracker() {
     // submission was scored by linguistic fallback only (30% MEDIUM baseline),
     // the "total_keystrokes=0" diagnostic FAIL appeared, and paste-detection
     // became impossible. The unlock gate has been moved to the scoring paths:
-    //   • observer.php is_active() — gates PHP observer scoring
-    //   • finalize_attempt.php execute() — gates JS-path scoring
-    //   • log_event.php already stores events first, then gates scoring
+    // • observer.php is_active() — gates PHP observer scoring
+    // • finalize_attempt.php execute() — gates JS-path scoring
+    // • log_event.php already stores events first, then gates scoring
     // Events are harmless audit data; the admin's intent to enable the plugin
     // (the global_enabled check above) is sufficient gating for capture.
 
@@ -449,9 +637,11 @@ function plagiarism_essayguard_inject_tracker() {
     // moodle/course:manageactivities (editing teachers), then moodle/grade:edit
     // (non-editing teachers/graders). Any of these = teacher, skip tracker.
     $context = \context_module::instance($cm->id);
-    if (is_siteadmin() ||
+    if (
+        is_siteadmin() ||
             has_capability('moodle/course:manageactivities', $context) ||
-            has_capability('moodle/grade:edit', $context)) {
+            has_capability('moodle/grade:edit', $context)
+    ) {
         return; // CSS loaded above; JS tracker not needed for teachers/admins.
     }
 
@@ -459,16 +649,16 @@ function plagiarism_essayguard_inject_tracker() {
     // on quiz ATTEMPT pages.  The tracker must be completely silent on every other
     // quiz page type:
     //
-    //   mod-quiz-view     view.php?id=N    – quiz landing / "Attempt quiz" button
-    //   mod-quiz-review   review.php       – post-submission results view
-    //   mod-quiz-summary  summary.php      – "Check your answers" confirmation page
-    //   mod-quiz-grade    grade.php        – teacher grading view
+    // mod-quiz-view     view.php?id=N    – quiz landing / "Attempt quiz" button
+    // mod-quiz-review   review.php       – post-submission results view
+    // mod-quiz-summary  summary.php      – "Check your answers" confirmation page
+    // mod-quiz-grade    grade.php        – teacher grading view
     //
     // All of those pages can share the same cm context and are visited by students,
     // so the old injection fired on all of them.  The only page where keystrokes can
     // actually be recorded and a form can actually be submitted is:
     //
-    //   mod-quiz-attempt  attempt.php      – the live question page
+    // mod-quiz-attempt  attempt.php      – the live question page
     //
     // FIX-EG-QUIZ-PAGE-GUARD-HOTFIX (v1.2.80): The v1.2.79 pagetype-only guard
     // silently blocked injection on attempt.php when $PAGE->pagetype was not yet
@@ -476,10 +666,10 @@ function plagiarism_essayguard_inject_tracker() {
     // Dual check: pagetype OR REQUEST_URI path — attempt.php always passes at least
     // one of these regardless of hook timing relative to $PAGE->set_pagetype().
     if ($cm->modname === 'quiz') {
-        $pagetype_ok = in_array($PAGE->pagetype, ['mod-quiz-attempt'], true);
-        $diag_url    = $_SERVER['REQUEST_URI'] ?? '';
-        $uri_ok      = (strpos($diag_url, '/mod/quiz/attempt.php') !== false);
-        if (!$pagetype_ok && !$uri_ok) {
+        $pagetypeok = in_array($PAGE->pagetype, ['mod-quiz-attempt'], true);
+        $diagurl    = $_SERVER['REQUEST_URI'] ?? '';
+        $uriok      = (strpos($diagurl, '/mod/quiz/attempt.php') !== false);
+        if (!$pagetypeok && !$uriok) {
             return;
         }
     }
@@ -496,13 +686,39 @@ function plagiarism_essayguard_inject_tracker() {
     // Result: $all_events always empty → every signal = 0 → score = 0 → LOW.
     //
     // New strategy:
-    //   • Quiz: use the quiz attempt ID directly — stable, unique, correct.
-    //   • Non-quiz (assignment, forum): userid:cmid hash — sesskey-free.
+    // • Quiz: use the quiz attempt ID directly — stable, unique, correct.
+    // • Non-quiz (assignment, forum): userid:cmid hash — sesskey-free.
+    // v1.2.224 FIX-EG-ATTEMPTKEY-UNVALIDATED: the attempt id came straight off the URL
+    // and was turned into a key that is then written to this user's preferences, with
+    // nothing checking that the attempt belongs to them or even to this activity.
+    // log_event.php and finalize_attempt.php both validate qa_* ownership before writing
+    // score data, so this was not exploitable end to end - but an unvalidated request
+    // parameter that reaches a database write on a plain page render is exactly what a
+    // reviewer looks for, and the validation belongs at the point the value is accepted.
+    //
+    // An attempt that is not this user's own, or not in this activity, falls back to the
+    // hash key rather than being trusted.
     $quizattemptid = optional_param('attempt', 0, PARAM_INT);
-    if ($quizattemptid > 0) {
-        $attemptkey = 'qa_' . $quizattemptid;
-    } else {
-        $attemptkey = sha1($USER->id . ':' . $cm->id);
+    $attemptkey    = sha1($USER->id . ':' . $cm->id);
+
+    if ($quizattemptid > 0 && $cm->modname === 'quiz') {
+        $ownattempt = $DB->record_exists(
+            'quiz_attempts',
+            [
+                'id'     => $quizattemptid,
+                'userid' => $USER->id,
+                'quiz'   => $cm->instance,
+                ]
+        );
+        if ($ownattempt) {
+            $attemptkey = 'qa_' . $quizattemptid;
+        } else {
+            debugging(
+                '[plagiarism_essayguard] attempt=' . $quizattemptid
+                . ' is not this user\'s attempt in cm ' . $cm->id . ' - falling back to the hash key.',
+                DEBUG_DEVELOPER
+            );
+        }
     }
 
     // Persist the key in user preferences so the PHP event observer can
@@ -513,20 +729,151 @@ function plagiarism_essayguard_inject_tracker() {
     $config = [
         'cmid'           => $cm->id,
         'attemptkey'     => $attemptkey,
-        'flushinterval'  => (int)get_config('plagiarism_essayguard', 'captureinterval') ?: 5000,
+        // V1.2.224 FIX-EG-CONFIG-ZERO: `?:` treats a deliberate 0 as absent and silently
+        // substitutes the default - the same trap already documented at analyser.php's
+        // paste_weight. Only an UNSET key (get_config returns false) should take the
+        // default; an admin who typed 0 meant 0.
+        'flushinterval'  => plagiarism_essayguard_config_int('captureinterval', 5000),
+        // Allowpaste's intended default IS 0 (paste not allowed), so the raw cast is
+        // correct here: (int)false === 0 gives the right answer for the unset case.
         'allowpaste'     => (int)get_config('plagiarism_essayguard', 'allowpaste'),
-        'maxburstchars'  => (int)get_config('plagiarism_essayguard', 'maxburstchars'),
+        // V1.2.228 FIX-EG-TRACKER-MAXBURST-ZERO: this used the raw accessor while the line
+        // above it went through config_int(), and the comment two lines up explains
+        // precisely why that is wrong - get_config() returns false for a key nobody has
+        // written and (int)false is 0. Neither db/install.php nor db/upgrade.php ever
+        // writes a maxburstchars default, so on EVERY fresh install the browser was told
+        // the burst threshold was 0 rather than 150.
+        //
+        // The consequence is on the client: tracker.js flags a burst with
+        // `delta >= state.maxburstchars`, so a threshold of 0 marks EVERY input event as a
+        // suspicious burst. That is the identical defect v1.2.224 fixed on the server side
+        // in analyser.php - "`>= $maxburstchars` alone made every input event suspicious
+        // when an administrator set maxburstchars to 0". The server was hardened and the
+        // configuration feed to the client was not, so the two halves of the same plugin
+        // disagreed about what a burst is on every site that had not saved its settings.
+        'maxburstchars'  => plagiarism_essayguard_config_int('maxburstchars', 150),
     ];
 
     $PAGE->requires->js_call_amd('plagiarism_essayguard/tracker', 'init', [$config]);
 }
 
+/**
+ * Read an integer setting, distinguishing "never set" from a deliberate zero.
+ *
+ * get_config() returns false - not null - for a key an administrator has never written,
+ * so `?? $default` never fires and `?: $default` fires for a legitimate 0. Both traps
+ * have produced defects in this plugin before. This is the one place that gets it right:
+ * false means take the default, anything else means the admin chose it.
+ *
+ * @param string $name The setting name within the plagiarism_essayguard component.
+ * @param int $default The value to use when the setting has never been saved.
+ * @return int The configured value, or $default when the key is unset.
+ */
+function plagiarism_essayguard_config_int(string $name, int $default): int {
+    $raw = get_config('plagiarism_essayguard', $name);
+    return ($raw === false || $raw === null || $raw === '') ? $default : (int)$raw;
+}
+
+/**
+ * Trim an ordered attempt list to the part a resumed rescore batch has not seen.
+ *
+ * v1.2.225 FIX-EG-RESCORE-UNSTABLE-CURSOR: rescore.php used to resume from a numeric
+ * OFFSET into a list ordered `timefinish DESC, id DESC`. That list is not stable between
+ * batches: a teacher rescores a quiz precisely when students are still submitting to it,
+ * and every attempt finished mid-run is inserted at the FRONT of the ordering, shifting
+ * every index. Measured on a 12-attempt quiz with two submissions between each batch of
+ * four, the offset walked 112,111,110,109,110,109,108,107,108,107,106,105 - it processed
+ * four attempts twice and never touched 104, 103, 102 or 101 at all, then reported the
+ * run complete. The cursor walks each attempt exactly once.
+ *
+ * Lives here rather than inline in rescore.php so it can be tested. The page had no
+ * testable seam at all, which is why an off-by-a-shifting-amount bug survived two
+ * releases of work on that same loop.
+ *
+ * @param array $attempts Attempt records in display order, each with an `id` property.
+ * @param int $afterid Resume after this attempt id; 0 to start from the beginning.
+ * @return array The attempts following the cursor, preserving order and keys. Empty when
+ *               the cursor names an attempt that is no longer in the list - a deleted
+ *               attempt or a reset quiz must not silently restart the whole run.
+ */
+function plagiarism_essayguard_attempts_after(array $attempts, int $afterid): array {
+    if ($afterid <= 0) {
+        return $attempts;
+    }
+
+    $seen = false;
+    $resumed = [];
+    foreach ($attempts as $key => $qa) {
+        if ($seen) {
+            $resumed[$key] = $qa;
+        } else if ((int)$qa->id === $afterid) {
+            $seen = true;
+        }
+    }
+
+    return $seen ? $resumed : [];
+}
+
+/**
+ * Whether Essay Guard can act on this activity type.
+ *
+ * @param string $modulename The activity type name, e.g. "quiz".
+ * @return bool True for assign, quiz and forum; false for every other type.
+ */
 function plagiarism_essayguard_supports_mod($modulename) {
     $supported = ['assign', 'quiz', 'forum'];
     return in_array($modulename, $supported, true);
 }
 
+/**
+ * Add the "Enable Essay Guard" checkbox to the activity settings form.
+ *
+ * Adds nothing for activity types Essay Guard cannot act on, or when the plugin is
+ * switched off site-wide, so no teacher is shown a control that cannot take effect.
+ *
+ * @param object $formwrapper The moodleform_mod instance being built.
+ * @param object $mform       The underlying QuickForm to add elements to.
+ * @return void
+ */
 function plagiarism_essayguard_coursemodule_standard_elements($formwrapper, $mform) {
+    global $CFG;
+    // V1.2.218: only offer this section on activity types the plugin can actually act on.
+    //
+    // Moodle calls coursemodule_standard_elements() for EVERY activity type, so the
+    // "Essay Guard" section was being added to Page, URL, Label, Folder, Book, Choice - every
+    // form in the site - offering a setting that does nothing there. plagiarism_essayguard_supports_mod()
+    // already existed for precisely this check and was never called from anywhere.
+    //
+    // It is also hidden when the plugin is switched off site-wide, or when the site is not
+    // unlocked: a teacher should not be shown a control that cannot take effect.
+    $modulename = '';
+    if ($formwrapper && method_exists($formwrapper, 'get_current')) {
+        $current = $formwrapper->get_current();
+        if (!empty($current->modulename)) {
+            $modulename = $current->modulename;
+        }
+    }
+    if ($modulename !== '' && !plagiarism_essayguard_supports_mod($modulename)) {
+        return;
+    }
+    // V1.2.223: use the plugin's OWN "enabled" convention, not a bare truthiness test.
+    // This is the same get_config()-returns-false trap that had silently disabled paste
+    // detection in the analyser; I reintroduced it here while adding the guard.
+    //
+    // There is no plagiarism_essayguard_is_enabled() - the global switch is read inline
+    // everywhere else in this file (see inject_tracker), using the convention that an
+    // UNSET key means enabled. get_config() returns false for a key that was never saved,
+    // so a bare `!get_config(...)` reads "administrator has never opened the settings
+    // page" as "plugin is off" and strips the section from the very activity types it
+    // belongs on. Verified live: the section was missing from a quiz, a supported type.
+    $egglobalenabled = get_config('plagiarism_essayguard', 'enabled');
+    if (
+        empty($CFG->enableplagiarism)
+            || ($egglobalenabled !== false && empty($egglobalenabled))
+    ) {
+        return;
+    }
+
     $mform->addElement('header', 'essayguardhdr', get_string('pluginname', 'plagiarism_essayguard'));
     // FIX-EG-CHECKBOX-SAVE (v1.2.152): Use plain checkbox, not advcheckbox.
     // advcheckbox relies on a hidden-field trick to transmit 0 when unchecked.
@@ -550,6 +897,16 @@ function plagiarism_essayguard_coursemodule_standard_elements($formwrapper, $mfo
     $mform->setDefault('essayguard_enabled', ($saved === false) ? 0 : (int)!empty($saved));
 }
 
+/**
+ * Save the "Enable Essay Guard" checkbox when an activity is saved.
+ *
+ * Writes the value unconditionally so that clearing the checkbox stores 0 rather
+ * than leaving the previous value in place.
+ *
+ * @param object $data   The submitted course module form data.
+ * @param object $course The course the activity belongs to.
+ * @return object The unmodified $data, as the hook contract requires.
+ */
 function plagiarism_essayguard_coursemodule_edit_post_actions($data, $course) {
     // FIX-EG-CHECKBOX-SAVE (v1.2.152): Always write config — no isset() guard.
     // Unchecked plain checkbox: field absent from POST, !empty(null) = false → saves 0.
@@ -566,6 +923,8 @@ function plagiarism_essayguard_coursemodule_edit_post_actions($data, $course) {
  * Legacy callback — kept for Moodle 4.0–4.2 compatibility.
  * On Moodle 4.3+ the hook system (db/hooks.php) handles this instead,
  * so we return early to avoid double-execution and suppress the deprecation warning.
+ *
+ * @return void
  */
 function plagiarism_essayguard_before_standard_html_head() {
     if (class_exists('core\hook\output\before_standard_head_html_generation')) {
@@ -574,7 +933,12 @@ function plagiarism_essayguard_before_standard_html_head() {
     plagiarism_essayguard_inject_tracker();
 }
 
-/**
+/*
+ * NOTE: this is a plain block comment, not a docblock. It documents the
+ * plagiarism_plugin_essayguard class, but the class is not declared here — it is
+ * required in on demand by the spl_autoload_register() below — so a doc-block opener here would
+ * be an orphaned docblock (moodle.Commenting.InlineComment.DocBlock).
+ *
  * Moodle plagiarism plugin class — REQUIRED entry point for the plagiarism API.
  *
  * v1.2.13 ROOT CAUSE FIX — BUG-EG-NO-BADGE-EVER:
@@ -605,25 +969,25 @@ function plagiarism_essayguard_before_standard_html_head() {
 // FIX-EG-AUTOLOAD (v1.2.206): Defer class definition until first use via spl_autoload_register.
 //
 // Root cause of persistent deprecation warnings with the Path A/B conditional approach:
-//   During Moodle's early bootstrap (setup.php get_plugins_with_function scan), lib.php
-//   is loaded before plagiarism_plugin base class is available. Path A (standalone with
-//   update_status() stub) is taken permanently for the entire PHP request. Later, when
-//   plagiarism_update_status() calls:
-//     new ReflectionMethod('plagiarism_plugin_essayguard', 'update_status')
-//   getDeclaringClass() returns 'plagiarism_plugin_essayguard' (not 'plagiarism_plugin'),
-//   so Moodle calls debugging('plagiarism_plugin::update_status() is deprecated...').
-//   Moodle's debugging() writes HTML directly to the output buffer — set_error_handler()
-//   cannot intercept it. No code change inside lib.php can fix a class already defined.
+// During Moodle's early bootstrap (setup.php get_plugins_with_function scan), lib.php
+// is loaded before plagiarism_plugin base class is available. Path A (standalone with
+// update_status() stub) is taken permanently for the entire PHP request. Later, when
+// plagiarism_update_status() calls:
+// new ReflectionMethod('plagiarism_plugin_essayguard', 'update_status')
+// getDeclaringClass() returns 'plagiarism_plugin_essayguard' (not 'plagiarism_plugin'),
+// so Moodle calls debugging('plagiarism_plugin::update_status() is deprecated...').
+// Moodle's debugging() writes HTML directly to the output buffer — set_error_handler()
+// cannot intercept it. No code change inside lib.php can fix a class already defined.
 //
 // Fix: Register an SPL autoloader so the class is defined on FIRST USE, not at lib.php
-//   load time. The early bootstrap scan (get_plugins_with_function) only checks for the
-//   existence of global FUNCTIONS — it never instantiates the plugin class. So the
-//   autoloader never fires during early bootstrap. It fires the first time Moodle calls
-//   class_exists('plagiarism_plugin_essayguard') or new plagiarism_plugin_essayguard() inside
-//   plagiarism_update_status() — by which point Moodle is fully bootstrapped and
-//   plagiarism_plugin is always defined. The class always extends plagiarism_plugin,
-//   inheriting update_status(). getDeclaringClass()->getName() === 'plagiarism_plugin'
-//   → no debugging() call → zero warnings in any debug mode.
+// load time. The early bootstrap scan (get_plugins_with_function) only checks for the
+// existence of global FUNCTIONS — it never instantiates the plugin class. So the
+// autoloader never fires during early bootstrap. It fires the first time Moodle calls
+// class_exists('plagiarism_plugin_essayguard') or new plagiarism_plugin_essayguard() inside
+// plagiarism_update_status() — by which point Moodle is fully bootstrapped and
+// plagiarism_plugin is always defined. The class always extends plagiarism_plugin,
+// inheriting update_status(). getDeclaringClass()->getName() === 'plagiarism_plugin'
+// → no debugging() call → zero warnings in any debug mode.
 if (!class_exists('plagiarism_plugin_essayguard', false)) {
     spl_autoload_register(function ($classname) {
         if ($classname !== 'plagiarism_plugin_essayguard') {
@@ -635,24 +999,40 @@ if (!class_exists('plagiarism_plugin_essayguard', false)) {
             // orders (e.g. unit tests or CLI scripts that use the class very early).
             global $CFG;
             if (!empty($CFG->libdir)) {
-                try { require_once($CFG->libdir . '/plagiarismlib.php'); } catch (\Throwable $_e) {}
+                try {
+                    require_once($CFG->libdir . '/plagiarismlib.php');
+                } catch (\Throwable $e) {
+                    debugging(
+                        'Essay Guard: could not load ' . $CFG->libdir . '/plagiarismlib.php — '
+                            . $e->getMessage(),
+                        DEBUG_DEVELOPER
+                    );
+                }
             }
             if (!class_exists('plagiarism_plugin', false)) {
-                $eg_lib = dirname(dirname(dirname(__FILE__))) . '/lib/plagiarismlib.php';
-                if (file_exists($eg_lib)) {
-                    try { require_once($eg_lib); } catch (\Throwable $_e) {}
+                $eglib = dirname(dirname(dirname(__FILE__))) . '/lib/plagiarismlib.php';
+                if (file_exists($eglib)) {
+                    try {
+                        require_once($eglib);
+                    } catch (\Throwable $e) {
+                        debugging(
+                            'Essay Guard: could not load ' . $eglib . ' — '
+                                . $e->getMessage(),
+                            DEBUG_DEVELOPER
+                        );
+                    }
                 }
-                unset($eg_lib);
+                unset($eglib);
             }
         }
         if (class_exists('plagiarism_plugin', false)) {
             // Path B: class extends plagiarism_plugin.
             // update_status() INHERITED — getDeclaringClass() = 'plagiarism_plugin' → no warning.
-            require_once __DIR__ . '/classes/pluginclass.php';
+            require_once(__DIR__ . '/classes/pluginclass.php');
         } else {
             // Path A fallback (should never happen on a normal web page load).
             // update_status() stub prevents ReflectionException crash.
-            require_once __DIR__ . '/classes/pluginclass_standalone.php';
+            require_once(__DIR__ . '/classes/pluginclass_standalone.php');
         }
     }, true, true);
 }
@@ -675,8 +1055,8 @@ if (!class_exists('plagiarism_plugin_essayguard', false)) {
 // in classes/hook/before_standard_top_of_body_html_generation.php.
 //
 // Result: no legacy function → no "Callback should be migrated" notice.
-//         hook registered → clean dispatch path.
-//         Path B guaranteed → no update_status() deprecation.
+// hook registered → clean dispatch path.
+// Path B guaranteed → no update_status() deprecation.
 
 /**
  * FIX-EG-UPDATE-STATUS-REVIVE (v1.2.174): Global function re-added.
@@ -738,14 +1118,18 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
     // skipped on subsequent calls. Unclaimed slots are always preferred over claimed ones.
     // If all matching slots are claimed (more questions than unique answers), we fall back to
     // the overall best match so the page still renders a badge rather than showing nothing.
-    static $claimed_slots = [];  // "cmid:userid" => [slot => true]
-    static $answer_cache  = [];  // "cmid:userid" => [slot => normalised_text]
+    // The trailing comments below describe the SHAPE of each cache, not PHP code;
+    // Squiz.PHP.CommentedOutCode misreads the "=>" arrows as an array literal.
+    // phpcs:disable Squiz.PHP.CommentedOutCode.Found
+    static $claimedslots = [];  /* "cmid:userid" => [slot => true] */
+    static $answercache  = [];  /* "cmid:userid" => [slot => normalised_text] */
+    // phpcs:enable Squiz.PHP.CommentedOutCode.Found
 
-    $cache_key = $cmid . ':' . $userid;
+    $cachekey = $cmid . ':' . $userid;
 
     // Populate the answer cache for this user+cm on first call.
-    if (!array_key_exists($cache_key, $answer_cache)) {
-        $answer_cache[$cache_key] = [];
+    if (!array_key_exists($cachekey, $answercache)) {
+        $answercache[$cachekey] = [];
 
         // Find the most recent finished quiz attempt.
         $attempt = $DB->get_record_sql(
@@ -769,29 +1153,29 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
                   ORDER BY qa.slot ASC, qas.id DESC";
             $rows = $DB->get_records_sql($sql, ['qubaid' => $attempt->uniqueid]);
 
-            $seen_slots = [];
+            $seenslots = [];
             foreach ($rows as $row) {
                 $slot = (int)$row->slot;
-                if (isset($seen_slots[$slot])) {
-                    continue; // keep only the most recent step per slot
+                if (isset($seenslots[$slot])) {
+                    continue; // Keep only the most recent step per slot.
                 }
-                $seen_slots[$slot] = true;
+                $seenslots[$slot] = true;
                 // Normalise: strip HTML, collapse whitespace, trim.
                 $norm = trim(preg_replace('/\s+/', ' ', strip_tags((string)($row->value ?? ''))));
                 if ($norm !== '') {
-                    $answer_cache[$cache_key][$slot] = $norm;
+                    $answercache[$cachekey][$slot] = $norm;
                 }
             }
         }
     }
 
-    if (empty($answer_cache[$cache_key])) {
-        return 0; // not a quiz, or attempt not found
+    if (empty($answercache[$cachekey])) {
+        return 0; // Not a quiz, or attempt not found.
     }
 
     // Normalise the incoming content the same way.
-    $norm_content = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
-    if ($norm_content === '') {
+    $normcontent = trim(preg_replace('/\s+/', ' ', strip_tags($content)));
+    if ($normcontent === '') {
         return 0;
     }
 
@@ -802,45 +1186,45 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
     // Apply html_entity_decode() before similar_text() so HTML entities in the
     // content string (&amp;, &nbsp; etc.) count as single chars, matching the
     // stored plain-text value from question_attempt_step_data.
-    $decoded_content = html_entity_decode($norm_content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $decodedcontent = html_entity_decode($normcontent, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
-    $claimed = $claimed_slots[$cache_key] ?? [];
+    $claimed = $claimedslots[$cachekey] ?? [];
 
     // Track the overall best match AND the best unclaimed match separately.
     // Unclaimed slots are always preferred; claimed slots are the last resort.
-    $best_slot           = 0;
-    $best_pct            = 0.0;
-    $best_unclaimed_slot = 0;
-    $best_unclaimed_pct  = 0.0;
+    $bestslot           = 0;
+    $bestpct            = 0.0;
+    $bestunclaimedslot = 0;
+    $bestunclaimedpct  = 0.0;
 
-    foreach ($answer_cache[$cache_key] as $slot => $slot_text) {
-        $decoded_slot = html_entity_decode($slot_text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        similar_text($decoded_content, $decoded_slot, $sim_pct);
-        if ($sim_pct < 60.0) {
+    foreach ($answercache[$cachekey] as $slot => $slottext) {
+        $decodedslot = html_entity_decode($slottext, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        similar_text($decodedcontent, $decodedslot, $simpct);
+        if ($simpct < 60.0) {
             continue;
         }
         // Track overall best (fallback when every slot is already claimed).
-        if ($sim_pct > $best_pct) {
-            $best_pct  = $sim_pct;
-            $best_slot = $slot;
+        if ($simpct > $bestpct) {
+            $bestpct  = $simpct;
+            $bestslot = $slot;
         }
         // Track best unclaimed slot — this is what we prefer to return.
-        if (!isset($claimed[$slot]) && $sim_pct > $best_unclaimed_pct) {
-            $best_unclaimed_pct  = $sim_pct;
-            $best_unclaimed_slot = $slot;
+        if (!isset($claimed[$slot]) && $simpct > $bestunclaimedpct) {
+            $bestunclaimedpct  = $simpct;
+            $bestunclaimedslot = $slot;
         }
     }
 
     // Prefer an unclaimed slot; only fall back to a claimed slot if every
     // matching slot has already been resolved in this page-render cycle.
-    $resolved = $best_unclaimed_slot > 0 ? $best_unclaimed_slot : $best_slot;
+    $resolved = $bestunclaimedslot > 0 ? $bestunclaimedslot : $bestslot;
 
     if ($resolved > 0) {
-        $claimed_slots[$cache_key][$resolved] = true;
+        $claimedslots[$cachekey][$resolved] = true;
         return $resolved;
     }
 
-    return 0; // no match found
+    return 0; // No match found.
 }
 
 /**
@@ -855,14 +1239,15 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
  *   - essayguard-wrap div, essayguard-link CSS class (replaces inline-style links).
  *   - Inline styles kept in sync with styles.css.
  *
- * @param string $status  'analysed' | 'pending' | 'error'
+ * @param string $status  Analysis state of the record: 'analysed', 'pending' or 'error'.
  * @param float  $score   Risk score 0-100.
- * @param string $level   'low' | 'medium' | 'high' | 'partial' | 'mild'
+ * @param string $level   Risk band: 'low', 'medium', 'high', 'partial' or 'mild'.
  * @param string $errmsg  Error message (status='error' only).
  * @param int    $cmid    Course-module ID.
  * @param int    $userid  Student's user ID.
- * @param bool   $is_teacher  True when the viewer has viewreport capability.
- * @param bool   $is_aggregate_fallback  True when the aggregate record was used.
+ * @param bool   $isteacher  True when the viewer has viewreport capability.
+ * @param bool   $isaggregatefallback  True when the aggregate record was used.
+ * @return string The badge HTML, including the one-time inline style block on first call.
  */
 function plagiarism_essayguard_render_badge(
     string $status,
@@ -871,18 +1256,20 @@ function plagiarism_essayguard_render_badge(
     string $errmsg,
     int $cmid,
     int $userid,
-    bool $is_teacher,
-    bool $is_aggregate_fallback
+    bool $isteacher,
+    bool $isaggregatefallback
 ): string {
     // Inline styles guarantee the badge is always visible, even when
     // styles.css has not loaded yet (e.g. AJAX responses, late-include paths).
     // Must be kept in sync with the essayguard-badge block in styles.css.
-    static $styles_injected = false;
-    $style_block = '';
-    if (!$styles_injected) {
-        $styles_injected = true;
-        $style_block = '<style>'
-            . '.essayguard-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:4px;font-size:.78rem;font-weight:600;letter-spacing:.01em;line-height:1.4;margin:2px 0;border:1px solid transparent;cursor:default;position:relative;text-decoration:none;}'
+    static $stylesinjected = false;
+    $styleblock = '';
+    if (!$stylesinjected) {
+        $stylesinjected = true;
+        $styleblock = '<style>'
+            . '.essayguard-badge{display:inline-flex;align-items:center;gap:5px;padding:3px '
+                . '10px;border-radius:4px;font-size:.78rem;font-weight:600;letter-spacing:.01em;line-height:1.4;margin:2px '
+                . '0;border:1px solid transparent;cursor:default;position:relative;text-decoration:none;}'
             . '.essayguard-badge-low{background:#f0fdf4;color:#166534;border-color:#86efac;}'
             . '.essayguard-badge-medium{background:#fff7ed;color:#7c2d12;border-color:#fdba74;}'
             . '.essayguard-badge-high{background:#fef2f2;color:#991b1b;border-color:#fca5a5;}'
@@ -896,62 +1283,109 @@ function plagiarism_essayguard_render_badge(
             . '.essayguard-badge-dot-error{background:#7c3aed;}'
             . '.essayguard-wrap{margin:4px 0;display:flex;flex-direction:column;gap:2px;}'
             . '.essayguard-link{font-size:.78rem;color:#555;text-decoration:underline;display:inline-block;margin-top:2px;}'
-            . '.essayguard-badge[data-eg-tip]:hover::after{content:attr(data-eg-tip);position:absolute;bottom:calc(100% + 6px);left:0;z-index:9999;background:#1e293b;color:#f1f5f9;font-size:.72rem;font-weight:400;line-height:1.5;padding:7px 11px;border-radius:5px;width:300px;white-space:normal;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.25);}'
-            . '.essayguard-badge[data-eg-tip]:hover::before{content:"";position:absolute;bottom:calc(100% + 1px);left:14px;border:5px solid transparent;border-top-color:#1e293b;pointer-events:none;}'
+            . '.essayguard-badge[data-eg-tip]:hover::after{content:attr(data-eg-tip);position:absolute;bottom:calc(100% '
+                . '+ '
+                . '6px);left:0;z-index:9999;background:#1e293b;color:#f1f5f9;font-size:.72rem;'
+                . 'font-weight:400;line-height:1.5;padding:7px '
+                . '11px;border-radius:5px;width:300px;white-space:normal;pointer-events:none;box-shadow:0 4px 12px '
+                . 'rgba(0,0,0,.25);}'
+            . '.essayguard-badge[data-eg-tip]:hover::before{content:"";position:absolute;bottom:calc(100% + '
+                . '1px);left:14px;border:5px solid transparent;border-top-color:#1e293b;pointer-events:none;}'
             . '</style>';
     }
 
-    $badge_class = 'essayguard-badge';
-    $dot_class   = 'essayguard-badge-dot';
+    $badgeclass = 'essayguard-badge';
+    $dotclass   = 'essayguard-badge-dot';
     $label       = '';
     $tooltip     = '';
 
     if ($status === 'analysed') {
-        $score_int   = (int)$score;
+        $scoreint   = (int)$score;
         // Normalise legacy DB values (partial/mild) to canonical display level.
-        $level_map   = ['low' => 'low', 'medium' => 'medium', 'high' => 'high', 'partial' => 'medium', 'mild' => 'medium'];
-        $canon_level = $level_map[$level] ?? 'low';
-        $level_label = ucfirst($canon_level);
-        $suffix      = $is_aggregate_fallback ? ' (overall)' : '';
-        $badge_class .= ' essayguard-badge-' . $canon_level;
-        $dot_class   .= ' essayguard-badge-dot-' . $canon_level;
-        $label        = 'Essay Guard ' . $level_label . $suffix . ' · ' . $score_int . '%';
-        $tooltips     = [
-            'low'    => 'Essay Guard: LOW authenticity risk (' . $score_int . '/100). Writing behaviour appears consistent with normal student patterns.',
-            'medium' => 'Essay Guard: MEDIUM authenticity risk (' . $score_int . '/100). Some signals triggered — review the detailed report before drawing conclusions.',
-            'high'   => 'Essay Guard: HIGH authenticity risk (' . $score_int . '/100). Significant signals detected — a detailed review is strongly recommended.',
-        ];
-        $tooltip = $tooltips[$canon_level] ?? $label;
-    } elseif ($status === 'error') {
-        $badge_class .= ' essayguard-badge-error';
-        $dot_class   .= ' essayguard-badge-dot-error';
-        $label        = 'Essay Guard Error';
-        $tooltip      = 'Essay Guard could not analyse this submission. ' . (trim($errmsg) ?: 'Check plugin settings.');
+        // v1.2.227: 'unmeasured' is not a risk band - it is the absence of one. It must
+        // never be folded into 'low'. See FIX-EG-NOTHING-MEASURED-READS-LOW in analyser.php.
+        if (($level ?? '') === 'unmeasured') {
+            $badgeclass .= ' essayguard-badge-unmeasured';
+            $dotclass   .= ' essayguard-badge-dot-unmeasured';
+            $label        = get_string('badgeunmeasured', 'plagiarism_essayguard');
+            $tooltip      = get_string('tooltipunmeasured', 'plagiarism_essayguard');
+            $canonlevel  = 'unmeasured';
+        } else {
+            $levelmap   = ['low' => 'low', 'medium' => 'medium', 'high' => 'high', 'partial' => 'medium', 'mild' => 'medium'];
+            // V1.2.224 FIX-EG-BADGE-FAILS-GREEN: this fell back to 'low', so a risklevel the
+            // map does not recognise - a value written by a future version, a truncated
+            // column, a partially-migrated row - rendered the reassuring green LOW badge with
+            // the record's real percentage beside it. A display fallback for an unknown value
+            // must not be the reassuring one: it tells the teacher there is nothing to look at
+            // in exactly the case where nobody knows whether there is. Fall back to 'medium',
+            // which prompts a human to open the record and decide.
+            $canonlevel = $levelmap[$level] ?? 'medium';
+            $levellabels = [
+            'low'    => get_string('risklow', 'plagiarism_essayguard'),
+            'medium' => get_string('riskmedium', 'plagiarism_essayguard'),
+            'high'   => get_string('riskhigh', 'plagiarism_essayguard'),
+            ];
+            $levellabel = $levellabels[$canonlevel] ?? ucfirst($canonlevel);
+            $suffix      = $isaggregatefallback
+            ? get_string('badgesuffixoverall', 'plagiarism_essayguard')
+            : '';
+            $badgeclass .= ' essayguard-badge-' . $canonlevel;
+            $dotclass   .= ' essayguard-badge-dot-' . $canonlevel;
+            $label        = get_string(
+                'badgelabel',
+                'plagiarism_essayguard',
+                (object) [
+                    'level'  => $levellabel,
+                    'suffix' => $suffix,
+                    'score'  => $scoreint,
+                    ]
+            );
+            $tooltips     = [
+            'low'    => get_string('tooltiplow', 'plagiarism_essayguard', $scoreint),
+            'medium' => get_string('tooltipmedium', 'plagiarism_essayguard', $scoreint),
+            'high'   => get_string('tooltiphigh', 'plagiarism_essayguard', $scoreint),
+            ];
+            $tooltip = $tooltips[$canonlevel] ?? $label;
+        } // v1.2.227: closes the else that guards the normal banding path.
+    } else if ($status === 'error') {
+        $badgeclass .= ' essayguard-badge-error';
+        $dotclass   .= ' essayguard-badge-dot-error';
+        $label        = get_string('badgeerror', 'plagiarism_essayguard');
+        $tooltip      = get_string(
+            'tooltiperror',
+            'plagiarism_essayguard',
+            trim($errmsg) ?: get_string('tooltiperrordefault', 'plagiarism_essayguard')
+        );
     } else {
-        // Pending or any unrecognised status
-        $badge_class .= ' essayguard-badge-pending';
-        $dot_class   .= ' essayguard-badge-dot-pending';
-        $label        = 'Essay Guard Pending';
-        $tooltip      = 'Essay Guard is analysing this submission. Reload the page in a moment to see the result.';
+        // Pending or any unrecognised status.
+        $badgeclass .= ' essayguard-badge-pending';
+        $dotclass   .= ' essayguard-badge-dot-pending';
+        $label        = get_string('badgepending', 'plagiarism_essayguard');
+        $tooltip      = get_string('tooltippending', 'plagiarism_essayguard');
     }
 
-    $badge = $style_block
-        . '<span class="' . $badge_class . '" data-eg-tip="' . s($tooltip) . '">'
-        . '<span class="' . $dot_class . '"></span>'
+    $badge = $styleblock
+        . '<span class="' . $badgeclass . '" data-eg-tip="' . s($tooltip) . '">'
+        . '<span class="' . $dotclass . '"></span>'
         . s($label)
         . '</span>';
 
     $links = '';
-    if ($is_teacher) {
+    if ($isteacher) {
         if ($status === 'analysed') {
-            $detail_url = new \moodle_url('/plagiarism/essayguard/student.php', [
-                'cmid'   => $cmid,
-                'userid' => $userid,
-            ]);
-            $links .= '<a href="' . $detail_url->out(false) . '" class="essayguard-link">Essay Guard detail</a>';
+            $detailurl = new \moodle_url(
+                '/plagiarism/essayguard/student.php',
+                [
+                    'cmid'   => $cmid,
+                    'userid' => $userid,
+                    ]
+            );
+            $links .= '<a href="' . $detailurl->out(false) . '" class="essayguard-link">'
+                . get_string('detaillink', 'plagiarism_essayguard') . '</a>';
         }
-        $class_url = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]);
-        $links .= '<a href="' . $class_url->out(false) . '" class="essayguard-link" style="margin-left:8px;">Class report</a>';
+        $classurl = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]);
+        $links .= '<a href="' . $classurl->out(false) . '" class="essayguard-link" style="margin-left:8px;">'
+            . get_string('classreportlink', 'plagiarism_essayguard') . '</a>';
         if ($status === 'error' && $errmsg !== '') {
             $links .= '<small style="color:#888;font-size:0.75rem;display:block;">' . s(substr($errmsg, 0, 120)) . '</small>';
         }
@@ -975,6 +1409,10 @@ function plagiarism_essayguard_render_badge(
  * plagiarism_essayguard_render_badge() — see that function for full feature list.
  *
  * Called by plagiarism_plugin_essayguard::get_links() — do not invoke directly.
+ *
+ * @param array $linkarray Moodle plagiarism link data. Keys used: cmid, userid,
+ *                         content, and the quiz question attempt when reviewing one.
+ * @return string HTML for the badge, or the empty string when nothing is shown.
  */
 function plagiarism_essayguard_get_links($linkarray) {
     global $DB, $USER;
@@ -999,51 +1437,80 @@ function plagiarism_essayguard_get_links($linkarray) {
         return '';
     }
 
-    // ── PERF-FIX-EG-BATCH-PRELOAD (v1.2.211) ─────────────────────────────────
+    $context = \context_module::instance($cmid);
+    $userid  = isset($linkarray['userid']) ? (int)$linkarray['userid'] : (int)$USER->id;
+
+    $isteacher = has_capability('plagiarism/essayguard:viewreport', $context);
+    $isown     = ($userid === (int)$USER->id);
+
+    // Students can only see their own badge; teachers can see all.
+    if (!$isteacher && !$isown) {
+        return '';
+    }
+
+    /* ── PERF-FIX-EG-BATCH-PRELOAD (v1.2.211) ───────────────────────────────── */
     // View All Submissions calls get_links() once per student row.
     // Pre-v1.2.211: 3 DB queries per student (DISTINCT qslot + pq_record +
     // agg_record) = 150+ queries for 50 students on one page load.
-    // Fix: load ALL plagiarism_essayguard_sc rows for this CM in ONE query on
+    // Fix: load the plagiarism_essayguard_sc rows for this CM in ONE query on
     // the first call; every subsequent student row is a pure O(1) array lookup.
     // The static cache lives for the PHP request lifetime only — reset between
     // page loads automatically.
-    static $_eg_sc_preloaded = [];   // [$cmid] => true
-    static $_eg_sc_cache     = [];   // [$cmid][$userid][$qslot] => stdClass
+    //
+    // v1.2.219: TWO FIXES TO THAT PRELOAD.
+    //
+    // (a) SELECT * pulled metricsjson and explanationsjson — two TEXT blobs, several
+    // KB each — for every user and every question slot in the activity. On a
+    // 200-student, 5-question quiz that is 1,200 rows of blob hydrated into PHP
+    // memory to render one badge. Only riskscore, qslot, userid and (for the
+    // aggregate-fallback rule below) metricsjson are ever read; explanationsjson
+    // is never touched here. The column list is now explicit.
+    //
+    // (b) The preload ran BEFORE the capability check and was never scoped by user, so
+    // a STUDENT viewing their own submission loaded every classmate's score rows
+    // into their own request. The capability check is now hoisted above the query
+    // and a viewer without 'viewreport' gets a userid-scoped query. The static
+    // cache is keyed by cmid AND scope so a teacher's full preload is never served
+    // to a student in the same request, or vice versa.
+    // Shape of the two statics: $_eg_sc_preloaded is keyed by cache key and holds true once
+    // that key's rows have been loaded. $_eg_sc_cache is keyed by cache key, then by user id,
+    // then by question slot, and holds one score record for each.
+    static $egscpreloaded = [];
+    static $egsccache     = [];
 
-    if (!isset($_eg_sc_preloaded[$cmid])) {
-        $_eg_sc_preloaded[$cmid] = true;
-        $all_rows = $DB->get_records_sql(
-            "SELECT * FROM {plagiarism_essayguard_sc}
-              WHERE cmid = :cmid
+    $scopeuid = $isteacher ? 0 : (int)$USER->id;
+    $cachekey = $cmid . ':' . $scopeuid;
+
+    if (!isset($egscpreloaded[$cachekey])) {
+        $egscpreloaded[$cachekey] = true;
+        $where  = 'cmid = :cmid';
+        $params = ['cmid' => $cmid];
+        if ($scopeuid > 0) {
+            $where .= ' AND userid = :userid';
+            $params['userid'] = $scopeuid;
+        }
+        $allrows = $DB->get_records_sql(
+            "SELECT id, userid, cmid, qslot, riskscore, risklevel, metricsjson, timemodified
+               FROM {plagiarism_essayguard_sc}
+              WHERE {$where}
            ORDER BY timemodified DESC",
-            ['cmid' => $cmid]
+            $params
         );
-        foreach ($all_rows as $row) {
+        foreach ($allrows as $row) {
             $uid  = (int)$row->userid;
             $slot = (int)$row->qslot;
             // Keep only the most-recent record per (userid, qslot) pair
             // (ORDER BY timemodified DESC guarantees first-wins = newest).
-            if (!isset($_eg_sc_cache[$cmid][$uid][$slot])) {
-                $_eg_sc_cache[$cmid][$uid][$slot] = $row;
+            if (!isset($egsccache[$cachekey][$uid][$slot])) {
+                $egsccache[$cachekey][$uid][$slot] = $row;
             }
         }
     }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    $context = \context_module::instance($cmid);
-    $userid  = isset($linkarray['userid']) ? (int)$linkarray['userid'] : (int)$USER->id;
-
-    $is_teacher = has_capability('plagiarism/essayguard:viewreport', $context);
-    $is_own     = ($userid === (int)$USER->id);
-
-    // Students can only see their own badge; teachers can see all.
-    if (!$is_teacher && !$is_own) {
-        return '';
-    }
+    /* ───────────────────────────────────────────────────────────────────────── */
 
     // Teachers see a class-report link when a full badge cannot be shown (qslot=0 path).
     $classreportlink = '';
-    if ($is_teacher) {
+    if ($isteacher) {
         $classreporturl  = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]);
         $classreportlink = '<a href="' . $classreporturl->out(false) . '" class="essayguard-link">Essay Guard class report</a>';
     }
@@ -1051,8 +1518,8 @@ function plagiarism_essayguard_get_links($linkarray) {
     // FIX-EG-CALLORDER-SKIP-RESOLVED (v1.2.165): Unified slot-resolution tracker.
     //
     // Previously each detection method tracked claimed/resolved slots independently:
-    //   • find_qslot_by_content() had its own internal $claimed_slots static.
-    //   • The call-order fallback had its own $co_idx sequential counter.
+    // • find_qslot_by_content() had its own internal $claimed_slots static.
+    // • The call-order fallback had its own $co_idx sequential counter.
     // These were completely isolated. When Q1 was resolved by content matching,
     // $co_idx remained 0. Q2 falling through to call-order then assigned
     // $co_slots[0] = slot 1 AGAIN — reading Q1's record for Q2's badge.
@@ -1064,7 +1531,7 @@ function plagiarism_essayguard_get_links($linkarray) {
     // within the same PHP request. The call-order fallback now iterates the available
     // slots and picks the first one NOT already in $resolved, so it can never
     // re-assign a slot that was already taken by content matching or get_slot().
-    static $resolved = [];  // "cmid:userid" => [slot => true] — all methods combined
+    static $resolved = [];  /* "cmid:userid" => [slot => true] — all methods combined */
 
     $rk = $cmid . ':' . $userid;
 
@@ -1073,11 +1540,13 @@ function plagiarism_essayguard_get_links($linkarray) {
     // Moodle passes $linkarray['questionattempt'] = question_attempt instance,
     // which exposes ->get_slot() returning the 1-based question slot number.
     $qslot = 0;
-    if (!empty($linkarray['questionattempt'])
-            && method_exists($linkarray['questionattempt'], 'get_slot')) {
+    if (
+        !empty($linkarray['questionattempt'])
+            && method_exists($linkarray['questionattempt'], 'get_slot')
+    ) {
         $qslot = (int)$linkarray['questionattempt']->get_slot();
         if ($qslot > 0) {
-            $resolved[$rk][$qslot] = true;  // record so call-order skips this slot
+            $resolved[$rk][$qslot] = true;  // Record so call-order skips this slot.
         }
     }
 
@@ -1112,11 +1581,11 @@ function plagiarism_essayguard_get_links($linkarray) {
     // enables Q.1 and Q.2 badges to appear on the overview page. Content-matching
     // still requires > 30 chars because similarity matching against short strings
     // is meaningless.
-    $_eg_content_plain = trim(strip_tags((string)($linkarray['content'] ?? '')));
-    if ($qslot === 0 && mb_strlen($_eg_content_plain) > 30) {
+    $egcontentplain = trim(strip_tags((string)($linkarray['content'] ?? '')));
+    if ($qslot === 0 && mb_strlen($egcontentplain) > 30) {
         $qslot = plagiarism_essayguard_find_qslot_by_content($cmid, $userid, (string)$linkarray['content']);
         if ($qslot > 0) {
-            $resolved[$rk][$qslot] = true;  // record so call-order skips this slot
+            $resolved[$rk][$qslot] = true;  // Record so call-order skips this slot.
         }
     }
 
@@ -1126,9 +1595,9 @@ function plagiarism_essayguard_get_links($linkarray) {
     // FIX-EG-CALLORDER-NO-CONTENT-GATE (v1.2.185): Content gate removed — see above.
     //
     // Both primary detection paths returned 0:
-    //   • get_slot() — 'questionattempt' absent (overview page) or Moodle < 4.1.
-    //   • find_qslot_by_content() — content < 30 chars (overview page status strings)
-    //     OR similarity < 60% (short answer, multi-attempt, different whitespace).
+    // • get_slot() — 'questionattempt' absent (overview page) or Moodle < 4.1.
+    // • find_qslot_by_content() — content < 30 chars (overview page status strings)
+    // OR similarity < 60% (short answer, multi-attempt, different whitespace).
     //
     // When per-question records exist for this user+cmid, Moodle always calls
     // get_links() for quiz essay questions in question-slot order (slot 1 → slot 2 → …)
@@ -1137,26 +1606,28 @@ function plagiarism_essayguard_get_links($linkarray) {
     // resolved by a different detection method.
     //
     // Safety:
-    //   • If no per-question records exist (assignment / forum — only qslot=0 written),
-    //     $co_slots[$ck] is empty and the block is a no-op; aggregate is used as before.
-    //   • Static arrays are per-PHP request; they reset between page loads automatically.
+    // • If no per-question records exist (assignment / forum — only qslot=0 written),
+    // $co_slots[$ck] is empty and the block is a no-op; aggregate is used as before.
+    // • Static arrays are per-PHP request; they reset between page loads automatically.
     if ($qslot === 0) {
-        static $co_slots = [];  // "cmid:userid" => ordered list of distinct per-Q slots
+        static $coslots = [];  /* "cmid:userid" => ordered list of distinct per-Q slots */
 
         $ck = $cmid . ':' . $userid;
-        if (!array_key_exists($ck, $co_slots)) {
+        if (!array_key_exists($ck, $coslots)) {
             // PERF-FIX-EG-BATCH-PRELOAD: serve from request-level cache; no DB query.
-            $user_slots = array_keys($_eg_sc_cache[$cmid][$userid] ?? []);
-            $user_slots = array_values(array_filter($user_slots, function ($s) {
-            return $s > 0;
-        }));
-            sort($user_slots);
-            $co_slots[$ck] = $user_slots;
+            $userslots = array_keys($egsccache[$cachekey][$userid] ?? []);
+            $userslots = array_values(
+                array_filter($userslots, function ($s) {
+                    return $s > 0;
+                    })
+            );
+            sort($userslots);
+            $coslots[$ck] = $userslots;
         }
 
         // Pick the first slot not already resolved by any prior detection method.
         $already = $resolved[$rk] ?? [];
-        foreach ($co_slots[$ck] as $candidate) {
+        foreach ($coslots[$ck] as $candidate) {
             if (!isset($already[$candidate])) {
                 $qslot = $candidate;
                 $resolved[$rk][$qslot] = true;
@@ -1206,7 +1677,7 @@ function plagiarism_essayguard_get_links($linkarray) {
     }
 
     $record               = null;
-    $is_aggregate_fallback = false;   // FIX-EG-IS-AGGREGATE (v1.2.84)
+    $isaggregatefallback = false;   // FIX-EG-IS-AGGREGATE (v1.2.84).
 
     // FIX-EG-PERQ-TRUST (v1.2.93): Correct per-question vs aggregate selection.
     //
@@ -1218,66 +1689,66 @@ function plagiarism_essayguard_get_links($linkarray) {
     // identical results regardless of whether Q1 was pasted and Q2 was typed.
     //
     // Correct logic:
-    //   1. Fetch the per-question record (qslot=N).
-    //   2. If it exists AND has riskscore > 0 → trust it; it is the accurate, question-
-    //      specific score written by the PHP observer using the final submitted text for
-    //      this slot. Do NOT compare against the aggregate.
-    //   3. If it exists BUT has riskscore = 0 → qslot detection likely failed in
-    //      tracker.js (events not tagged → no events found for this slot → score=0).
-    //      Fall back to the aggregate which may have correctly captured paste behaviour
-    //      via the untagged qslot=0 event pool. (Preserves the v1.2.87 intent for the
-    //      broken-qslot-detection edge case only.)
-    //   4. If no per-question record exists → fall back to aggregate as before.
-    $pq_record  = null;
-    $agg_record = null;
+    // 1. Fetch the per-question record (qslot=N).
+    // 2. If it exists AND has riskscore > 0 → trust it; it is the accurate, question-
+    // specific score written by the PHP observer using the final submitted text for
+    // this slot. Do NOT compare against the aggregate.
+    // 3. If it exists BUT has riskscore = 0 → qslot detection likely failed in
+    // tracker.js (events not tagged → no events found for this slot → score=0).
+    // Fall back to the aggregate which may have correctly captured paste behaviour
+    // via the untagged qslot=0 event pool. (Preserves the v1.2.87 intent for the
+    // broken-qslot-detection edge case only.)
+    // 4. If no per-question record exists → fall back to aggregate as before.
+    $pqrecord  = null;
+    $aggrecord = null;
 
     if ($qslot > 0) {
         // PERF-FIX-EG-BATCH-PRELOAD: serve from request-level cache; no DB query.
-        $pq_record = $_eg_sc_cache[$cmid][$userid][$qslot] ?? null;
+        $pqrecord = $egsccache[$cachekey][$userid][$qslot] ?? null;
     }
 
     // Always fetch aggregate — needed as fallback for the riskscore=0 edge case.
     // PERF-FIX-EG-BATCH-PRELOAD: serve from request-level cache; no DB query.
-    $agg_record = $_eg_sc_cache[$cmid][$userid][0] ?? null;
+    $aggrecord = $egsccache[$cachekey][$userid][0] ?? null;
 
     // Select the record to display for this question.
     // FIX-EG-FALLBACK-PASTE-ONLY (v1.2.110): The fallback rule must satisfy two
     // simultaneous user-reported failures from live testing:
     //
-    //   Bug A — pasted Q1 → LOW: Ctrl+V records 1–2 keydown events tagged with
-    //     this qslot, but the paste/large_insert event was tagged with a different
-    //     qslot (or none). The per-question scorer sees keystrokes but no paste
-    //     signal → riskscore=0, total_keystrokes>0. v1.2.109 trusted that 0% and
-    //     never consulted the aggregate, so the paste detected at the attempt
-    //     level was hidden.
-    //   Bug B — typed naturally → MEDIUM: qslot detection failed entirely,
-    //     per-question record has riskscore=0 and no activity → v1.2.109 fell
-    //     back to the aggregate. The aggregate, scoring all of the student's
-    //     clean typing, hit Signal 4 (no long pauses) + Signal 5 (no backspaces)
-    //     ≈ 35 and badged the honest typist MEDIUM (OVERALL).
+    // Bug A — pasted Q1 → LOW: Ctrl+V records 1–2 keydown events tagged with
+    // this qslot, but the paste/large_insert event was tagged with a different
+    // qslot (or none). The per-question scorer sees keystrokes but no paste
+    // signal → riskscore=0, total_keystrokes>0. v1.2.109 trusted that 0% and
+    // never consulted the aggregate, so the paste detected at the attempt
+    // level was hidden.
+    // Bug B — typed naturally → MEDIUM: qslot detection failed entirely,
+    // per-question record has riskscore=0 and no activity → v1.2.109 fell
+    // back to the aggregate. The aggregate, scoring all of the student's
+    // clean typing, hit Signal 4 (no long pauses) + Signal 5 (no backspaces)
+    // ≈ 35 and badged the honest typist MEDIUM (OVERALL).
     //
     // The shared root cause is that v1.2.109's discriminator (per-question
     // activity) does not distinguish between "the aggregate genuinely detected
     // a paste" and "the aggregate is just typing-signal noise". A single rule
     // resolves both bugs:
     //
-    //   Fall back to the aggregate ONLY when the aggregate has CONCRETE paste
-    //   evidence (paste_events > 0 OR riskscore >= 0.70 — the HIGH threshold,
-    //   which is reachable only when Signal 1 fires from a paste/large_insert).
-    //   Typing-only aggregate scores in the 35–69 range are never used as a
-    //   fallback because they have no meaning for an individual question that
-    //   captured no events of its own.
+    // Fall back to the aggregate ONLY when the aggregate has CONCRETE paste
+    // evidence (paste_events > 0 OR riskscore >= 0.70 — the HIGH threshold,
+    // which is reachable only when Signal 1 fires from a paste/large_insert).
+    // Typing-only aggregate scores in the 35–69 range are never used as a
+    // fallback because they have no meaning for an individual question that
+    // captured no events of its own.
     //
     // Outcomes:
-    //   • Bug A: per-question riskscore=0, aggregate has paste → fallback to
-    //     aggregate → HIGH (correct).
-    //   • Bug B: per-question riskscore=0, aggregate has no paste → no
-    //     fallback → per-question shown as LOW (correct).
-    //   • Honest typist with cleanly tagged events → per-question riskscore
-    //     reflects real signals → shown as-is (no change).
-    //   • Real per-question paste (riskscore > 0 from tagged paste) → trusted
-    //     directly, never overwritten by aggregate (no change from v1.2.93).
-    if ($pq_record && $agg_record) {
+    // • Bug A: per-question riskscore=0, aggregate has paste → fallback to
+    // aggregate → HIGH (correct).
+    // • Bug B: per-question riskscore=0, aggregate has no paste → no
+    // fallback → per-question shown as LOW (correct).
+    // • Honest typist with cleanly tagged events → per-question riskscore
+    // reflects real signals → shown as-is (no change).
+    // • Real per-question paste (riskscore > 0 from tagged paste) → trusted
+    // directly, never overwritten by aggregate (no change from v1.2.93).
+    if ($pqrecord && $aggrecord) {
         // The $agg_has_paste_evidence guard alone is sufficient — keystroke
         // activity from Ctrl+V modifier presses is not a reliable indicator
         // that the paste was correctly attributed to this slot, so we no
@@ -1298,12 +1769,12 @@ function plagiarism_essayguard_get_links($linkarray) {
         // (HIGH threshold — definitive paste evidence regardless of breakdown). An
         // incidental autocorrect paste (Signal 1 = 10 pts) no longer qualifies as
         // "paste evidence" and does not trigger the per-question fallback.
-        $agg_metrics_arr  = !empty($agg_record->metricsjson)
-            ? (json_decode($agg_record->metricsjson, true) ?: [])
+        $aggmetricsarr  = !empty($aggrecord->metricsjson)
+            ? (json_decode($aggrecord->metricsjson, true) ?: [])
             : [];
-        $agg_signal1_pts  = (int)(($agg_metrics_arr['signal_breakdown'][1] ?? 0));
-        $agg_has_paste_evidence = ($agg_signal1_pts >= 30)
-                               || ((float)$agg_record->riskscore >= 0.70);
+        $aggsignal1pts  = (int)(($aggmetricsarr['signal_breakdown'][1] ?? 0));
+        $agghaspasteevidence = ($aggsignal1pts >= 30)
+                               || ((float)$aggrecord->riskscore >= 0.70);
 
         // FIX-EG-MISSED-PERQ-PASTE (v1.2.132): Extended condition introduced in v1.2.132
         // to catch Ctrl+V pastes where only modifier keydowns (Ctrl+V = 2 keydowns) were
@@ -1328,21 +1799,21 @@ function plagiarism_essayguard_get_links($linkarray) {
         // a linguistic-fallback LOW — represents real information about that specific
         // question slot and must not be silently overridden by the aggregate.
         // This makes lib.php and report.php use identical fallback logic → no mismatch.
-        $pq_looks_like_missed_paste = ((float)$pq_record->riskscore <= 0.0);
-        if ($pq_looks_like_missed_paste && $agg_has_paste_evidence) {
+        $pqlookslikemissedpaste = ((float)$pqrecord->riskscore <= 0.0);
+        if ($pqlookslikemissedpaste && $agghaspasteevidence) {
             // Per-question scorer found no paste for this slot AND the aggregate
             // clearly detected a paste somewhere in the attempt: surface it.
-            $record = $agg_record;
-            $is_aggregate_fallback = true;
+            $record = $aggrecord;
+            $isaggregatefallback = true;
         } else {
             // Either the per-question score is meaningful, OR the aggregate has
             // no paste evidence to rescue it. Trust the per-question record.
-            $record = $pq_record;
+            $record = $pqrecord;
         }
     } else {
-        $record = $pq_record ?? $agg_record;
-        if ($record && $agg_record && $qslot > 0 && $record === $agg_record) {
-            $is_aggregate_fallback = true;
+        $record = $pqrecord ?? $aggrecord;
+        if ($record && $aggrecord && $qslot > 0 && $record === $aggrecord) {
+            $isaggregatefallback = true;
         }
     }
 
@@ -1355,18 +1826,18 @@ function plagiarism_essayguard_get_links($linkarray) {
     // Replaces the Mustache template (riskbadge.mustache) + manual link assembly with
     // the inline PHP renderer — inline styles, hover tooltip, pending/error states,
     // essayguard-wrap div, essayguard-link class. See render_badge() for details.
-    $risk_pct  = max(0, min(100, (int)round(((float)$record->riskscore) * 100)));
-    $risklevel = \plagiarism_essayguard\local\service\analyser::risk_level($risk_pct);
+    $riskpct  = max(0, min(100, (int)round(((float)$record->riskscore) * 100)));
+    $risklevel = \plagiarism_essayguard\local\service\analyser::risk_level($riskpct);
     $errmsg    = (string)($record->errormsg ?? '');
 
     return plagiarism_essayguard_render_badge(
         'analysed',
-        (float)$risk_pct,
+        (float)$riskpct,
         $risklevel,
         $errmsg,
         $cmid,
         $userid,
-        $is_teacher,
-        $is_aggregate_fallback
+        $isteacher,
+        $isaggregatefallback
     );
 }

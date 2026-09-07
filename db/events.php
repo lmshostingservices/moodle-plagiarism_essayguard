@@ -29,7 +29,7 @@
  * tracker.js is a secondary/redundant path for low-latency use cases.
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
@@ -57,6 +57,16 @@ $observers = [
     [
         'eventname' => '\mod_forum\event\assessable_uploaded',
         'callback'  => 'plagiarism_essayguard\observer::on_assessable_submitted',
+        'priority'  => 0,
+        'internal'  => false,
+    ],
+
+    // V1.2.229 FIX-EG-ORPHAN-ON-CM-DELETE: purge this plugin's rows when the activity
+    // they describe is deleted. Without this the rows outlive their context and become
+    // permanently unreachable by the privacy framework — see observer for the detail.
+    [
+        'eventname' => '\core\event\course_module_deleted',
+        'callback'  => 'plagiarism_essayguard\observer::on_course_module_deleted',
         'priority'  => 0,
         'internal'  => false,
     ],

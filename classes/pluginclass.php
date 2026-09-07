@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * EssayGuard plagiarism plugin class — Path B (extends plagiarism_plugin).
  *
@@ -26,17 +24,45 @@ defined('MOODLE_INTERNAL') || die();
  * deprecation notice, regardless of debug level.
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ *
+ * v1.2.219: print_disclosure() now returns a real disclosure instead of ''. Returning
+ * an empty string meant students were never told, anywhere in the interface, that every
+ * keystroke and paste in this activity is recorded and scored. Moodle calls this method
+ * precisely so a plagiarism plugin can meet that obligation; a silent tracker on a
+ * client site is a legal problem, not a UI nicety.
  */
 class plagiarism_plugin_essayguard extends plagiarism_plugin {
+    /**
+     * Return the Essay Guard badge and report links for one submission.
+     *
+     * @param array $linkarray Moodle plagiarism link data: cmid, userid, content and,
+     *                         for quizzes, the question attempt being reviewed.
+     * @return string HTML for the badge, or the empty string when nothing is shown.
+     */
     public function get_links($linkarray) {
         return plagiarism_essayguard_get_links($linkarray);
     }
 
+    /**
+     * Return the student-facing disclosure shown on the submission form.
+     *
+     * States that keystrokes, pauses, corrections and paste events are recorded, who
+     * can see the result, and how long the telemetry is kept.
+     *
+     * @param int $cmid The course module the student is submitting to.
+     * @return string HTML disclosure, or the empty string when Essay Guard is not active here.
+     */
     public function print_disclosure($cmid) {
-        return '';
+        return plagiarism_essayguard_print_disclosure((int)$cmid);
     }
 
+    /**
+     * Persist the per-activity "Enable Essay Guard" checkbox when an activity is saved.
+     *
+     * @param object $data The submitted course module form data.
+     * @return void
+     */
     public function save_form_elements($data) {
         if (!empty($data->coursemodule)) {
             set_config(
@@ -47,8 +73,19 @@ class plagiarism_plugin_essayguard extends plagiarism_plugin {
         }
     }
 
+    /**
+     * Legacy per-module form hook.
+     *
+     * Essay Guard adds its checkbox from
+     * plagiarism_essayguard_coursemodule_standard_elements() in lib.php instead, so
+     * nothing is added here.
+     *
+     * @param object $mform      The course module form.
+     * @param object $context    The context the form is being built for.
+     * @param string $modulename The activity type, e.g. "quiz".
+     * @return bool Always false.
+     */
     public function get_form_elements_module($mform, $context, $modulename = '') {
         return false;
     }
-
 }

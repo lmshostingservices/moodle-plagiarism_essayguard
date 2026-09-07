@@ -1,21 +1,36 @@
-// plagiarism_essayguard/reporter
+// This file is part of Moodle - http://moodle.org/
 //
-// FIX-EG-NO-BADGE-OVERVIEW (v1.2.60):
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
 //
-// Moodle's plagiarism_get_links() API is only invoked on individual attempt-review
-// pages; the quiz grading OVERVIEW table (/mod/quiz/report.php?mode=grading) never
-// calls it  -  so Essay Guard badges were permanently absent from the page where
-// teachers spend most of their grading time.
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
 //
-// This AMD module is loaded by before_footer.php for teachers with viewreport on
-// mod-quiz-report pages. It:
-//   1. Scans every <tr> for a link to /user/view.php to map userid  ->  row.
-//   2. Calls plagiarism_essayguard_get_badges (batch web-service, one round-trip).
-//   3. Injects a coloured risk badge inside the student-name cell of each row.
-//
-// @package    plagiarism_essayguard
-// @copyright  2026 EssayGraderAI
-// @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * Essay Guard  -  risk-badge injector for the quiz grading overview table.
+ *
+ * Moodle's plagiarism_get_links() API is only invoked on individual attempt-review
+ * pages; the quiz grading OVERVIEW table (/mod/quiz/report.php?mode=grading) never
+ * calls it  -  so Essay Guard badges were permanently absent from the page where
+ * teachers spend most of their grading time (FIX-EG-NO-BADGE-OVERVIEW, v1.2.60).
+ *
+ * This AMD module is loaded by before_footer.php for teachers with viewreport on
+ * mod-quiz-report pages. It:
+ *   1. Scans every <tr> for a link to /user/view.php to map userid  ->  row.
+ *   2. Calls plagiarism_essayguard_get_badges (batch web-service, one round-trip).
+ *   3. Injects a coloured risk badge inside the student-name cell of each row.
+ *
+ * @module     plagiarism_essayguard/reporter
+ * @copyright  2026 LMS-Labs
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 define(['core/ajax'], function(Ajax) {
     'use strict';
 

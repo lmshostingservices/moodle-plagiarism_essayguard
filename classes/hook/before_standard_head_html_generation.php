@@ -16,8 +16,6 @@
 
 namespace plagiarism_essayguard\hook;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Hook callback for core\hook\output\before_standard_head_html_generation.
  *
@@ -25,14 +23,16 @@ defined('MOODLE_INTERNAL') || die();
  * on Moodle 4.3 and above where the hook system is available.
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class before_standard_head_html_generation {
     /**
      * Inject the Essay Guard tracker AMD module into the page head.
      *
-     * @param \core\hook\output\before_standard_head_html_generation $hook
+     * @param \core\hook\output\before_standard_head_html_generation $hook The hook instance
+     *        dispatched by Moodle while it builds the page head.
+     * @return void
      */
     public static function callback(
         \core\hook\output\before_standard_head_html_generation $hook

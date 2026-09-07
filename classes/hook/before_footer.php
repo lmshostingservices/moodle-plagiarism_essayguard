@@ -16,8 +16,6 @@
 
 namespace plagiarism_essayguard\hook;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * FIX-EG-QUIZ-FOOTER-BUTTON (v1.2.52)
  *
@@ -39,10 +37,20 @@ defined('MOODLE_INTERNAL') || die();
  * Only shown to users with plagiarism/essayguard:viewreport capability.
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class before_footer {
+    /**
+     * Load the reporter AMD module on the quiz grading overview page.
+     *
+     * Moodle never calls plagiarism_get_links() for that table, so the badges are
+     * injected from JavaScript instead. Loaded only for users holding
+     * plagiarism/essayguard:viewreport in the activity.
+     *
+     * @param \core\hook\output\before_footer_html_generation $hook The footer hook.
+     * @return void
+     */
     public static function callback(
         \core\hook\output\before_footer_html_generation $hook
     ): void {
@@ -57,10 +65,10 @@ class before_footer {
         // making the floating Essay Guard Report button permanently invisible to teachers.
         // Identical fix to FIX-EG-ENABLED-CHECK-INCONSISTENT (observer.php v1.2.94) and
         // FIX-EG-GLOBAL-ENABLED-MISSING (inject_tracker v1.2.88):
-        //   Treat a missing key as enabled; only skip when the key EXISTS and is explicitly
-        //   set to a disabled value ('0' or empty string).
-        $global_enabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($global_enabled !== false && empty($global_enabled)) {
+        // Treat a missing key as enabled; only skip when the key EXISTS and is explicitly
+        // set to a disabled value ('0' or empty string).
+        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
+        if ($globalenabled !== false && empty($globalenabled)) {
             return;
         }
         if (during_initial_install()) {
@@ -97,21 +105,25 @@ class before_footer {
         }
 
         // Count students who have Essay Guard scores for this quiz.
-        $count = (int)$DB->count_records('plagiarism_essayguard_sc', [
-            'cmid'  => $cm->id,
-            'qslot' => 0,
-        ]);
+        $count = (int)$DB->count_records(
+            'plagiarism_essayguard_sc',
+            [
+                'cmid'  => $cm->id,
+                'qslot' => 0,
+                ]
+        );
 
-        $report_url = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cm->id]);
+        $reporturl = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cm->id]);
 
-        $label = 'Essay Guard Report';
+        // V1.2.221: was a hardcoded English literal, unlike every other visible string here.
+            $label = get_string('footerreportbutton', 'plagiarism_essayguard');
         $badge = $count > 0
             ? '<span style="background:#fff;color:#6c3483;border-radius:10px;padding:1px 7px;'
               . 'font-size:0.78rem;font-weight:700;margin-left:6px;">' . $count . '</span>'
             : '';
 
         $html = '<div style="position:fixed;top:80px;right:0;z-index:9999;">'
-              . '<a href="' . $report_url->out(false) . '" '
+              . '<a href="' . $reporturl->out(false) . '" '
               . 'style="display:inline-flex;align-items:center;background:#6c3483;color:#fff;'
               . 'padding:7px 14px 7px 12px;border-radius:8px 0 0 8px;font-size:0.88rem;'
               . 'font-weight:600;text-decoration:none;box-shadow:-2px 2px 6px rgba(0,0,0,0.18);'

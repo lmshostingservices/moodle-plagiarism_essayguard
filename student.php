@@ -25,15 +25,18 @@
  * URL: /plagiarism/essayguard/student.php?cmid=X&userid=Y
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require_once(__DIR__ . '/../../config.php');
+// V1.2.222: lib.php was never loaded here - see rescore.php. Every
+// plagiarism_essayguard_*() call on this page was a fatal waiting to happen.
+require_once(__DIR__ . '/lib.php');
 
 global $DB, $CFG, $OUTPUT, $PAGE, $USER;
 
-$cmid   = required_param('cmid',   PARAM_INT);
+$cmid   = required_param('cmid', PARAM_INT);
 $userid = required_param('userid', PARAM_INT);
 
 $cm      = get_coursemodule_from_id(null, $cmid, 0, false, MUST_EXIST);
@@ -44,6 +47,48 @@ $student = $DB->get_record('user', ['id' => $userid], '*', MUST_EXIST);
 require_login($course, false, $cm);
 require_capability('plagiarism/essayguard:viewreport', $context);
 
+// V1.2.221: enforce group separation HERE too.
+//
+// v1.2.219 added a SEPARATEGROUPS restriction to report.php so a tutor sees only their own
+// groups. This page had no group check at all - it took `userid` straight from the URL and
+// rendered that student's entire behavioural profile: risk score, paste counts, WPM,
+// per-signal explanations, name. A tutor restricted to Group 1 could read a Group 7
+// student's profile simply by editing the URL, and the id is on every participants-list
+// link in the course. The remediation was cosmetic without this.
+//
+// Also require the target to be enrolled: get_record('user', …, MUST_EXIST) accepts ANY
+// site user id, so the page resolved arbitrary account ids to real names in its heading
+// before it ever checked whether there was data.
+if (!is_enrolled($context, $userid)) {
+    throw new moodle_exception(
+        'nopermissions',
+        'error',
+        '',
+        get_string('viewreport', 'plagiarism_essayguard')
+    );
+}
+if (
+    groups_get_activity_groupmode($cm, $course) == SEPARATEGROUPS
+        && !has_capability('moodle/site:accessallgroups', $context)
+) {
+    $egallowedgroups = groups_get_activity_allowed_groups($cm);
+    $egshared = false;
+    foreach (array_keys($egallowedgroups) as $eggid) {
+        if (groups_is_member($eggid, $userid)) {
+            $egshared = true;
+            break;
+        }
+    }
+    if (!$egshared) {
+        throw new moodle_exception(
+            'nopermissions',
+            'error',
+            '',
+            get_string('viewreport', 'plagiarism_essayguard')
+        );
+    }
+}
+
 $PAGE->set_url(new moodle_url('/plagiarism/essayguard/student.php', ['cmid' => $cmid, 'userid' => $userid]));
 $PAGE->set_context($context);
 $PAGE->set_course($course);
@@ -52,7 +97,7 @@ $PAGE->set_title(get_string('pluginname', 'plagiarism_essayguard') . ' — ' . f
 $PAGE->set_heading($course->fullname);
 $PAGE->requires->css('/plagiarism/essayguard/styles.css');
 
-// ── Load score record ─────────────────────────────────────────────────────────
+/* ── Load score record ───────────────────────────────────────────────────────── */
 
 $sc = $DB->get_record_sql(
     "SELECT * FROM {plagiarism_essayguard_sc}
@@ -62,32 +107,42 @@ $sc = $DB->get_record_sql(
     IGNORE_MULTIPLE
 );
 
-// ── Colour map ────────────────────────────────────────────────────────────────
+/* ── Colour map ──────────────────────────────────────────────────────────────── */
 
-$risk_colours = [
-    'low'     => ['bg' => '#f0fdf4', 'text' => '#166534', 'bar' => '#22c55e',  'label' => 'Low'],
-    'medium'  => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316',  'label' => 'Medium'],
-    'high'    => ['bg' => '#fef2f2', 'text' => '#991b1b', 'bar' => '#ef4444',  'label' => 'High'],
-    'partial' => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316',  'label' => 'Medium'],
-    'mild'    => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316',  'label' => 'Medium'],
+$egrisklow    = get_string('risklow', 'plagiarism_essayguard');
+$egriskmedium = get_string('riskmedium', 'plagiarism_essayguard');
+$egriskhigh   = get_string('riskhigh', 'plagiarism_essayguard');
+$riskcolours = [
+    'low'     => ['bg' => '#f0fdf4', 'text' => '#166534', 'bar' => '#22c55e', 'label' => $egrisklow],
+    'medium'  => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316', 'label' => $egriskmedium],
+    'high'    => ['bg' => '#fef2f2', 'text' => '#991b1b', 'bar' => '#ef4444', 'label' => $egriskhigh],
+    'partial' => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316', 'label' => $egriskmedium],
+    'mild'    => ['bg' => '#fff7ed', 'text' => '#7c2d12', 'bar' => '#f97316', 'label' => $egriskmedium],
 ];
 
 echo $OUTPUT->header();
 
 $backurl = new moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]);
-echo html_writer::tag('p',
-    html_writer::link($backurl, '← Back to class report', ['class' => 'btn btn-sm btn-secondary']),
+echo html_writer::tag(
+    'p',
+    html_writer::link(
+        $backurl,
+        '← ' . get_string('backtoclassreport', 'plagiarism_essayguard'),
+        ['class' => 'btn btn-sm btn-secondary']
+    ),
     ['style' => 'margin-bottom:1.5rem;']
 );
 
-// ── Page header ───────────────────────────────────────────────────────────────
+/* ── Page header ─────────────────────────────────────────────────────────────── */
 
 $modinfo = get_fast_modinfo($cm->course);
 $actname = $modinfo->get_cm($cmid)->name;
 
-echo '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;margin-bottom:1.25rem;">';
+echo '<div '
+    . 'style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:1rem;margin-bottom:1.25rem;">';
 echo '<div>';
-echo html_writer::tag('h2',
+echo html_writer::tag(
+    'h2',
     get_string('pluginname', 'plagiarism_essayguard') . ' — ' . fullname($student),
     ['style' => 'margin:0 0 0.25rem;']
 );
@@ -96,7 +151,7 @@ echo '</div>';
 echo '</div>';
 
 if (!$sc) {
-    echo $OUTPUT->notification('No Essay Guard data found for this student in this activity.', 'info');
+    echo $OUTPUT->notification(get_string('nodata', 'plagiarism_essayguard'), 'info');
     echo $OUTPUT->footer();
     exit;
 }
@@ -104,17 +159,18 @@ if (!$sc) {
 // FIX-EG-STUDENT-LEVEL (v1.2.73): derive level from score, not DB column.
 $score  = isset($sc->riskscore) ? (int)round((float)($sc->riskscore ?? 0) * 100) : 0;
 $level  = \plagiarism_essayguard\local\service\analyser::risk_level($score);
-$c      = $risk_colours[$level] ?? $risk_colours['low'];
+$c      = $riskcolours[$level] ?? $riskcolours['low'];
 
 $explanations = json_decode($sc->explanationsjson ?? '[]', true) ?: [];
-$metrics      = json_decode($sc->metricsjson      ?? '{}', true) ?: [];
+$metrics      = json_decode($sc->metricsjson ?? '{}', true) ?: [];
 
-// ── Overall score card + visual bar ──────────────────────────────────────────
+/* ── Overall score card + visual bar ────────────────────────────────────────── */
 
-$bar_w      = min(100, $score);
-$bar_colour = $c['bar'];
+$barw      = min(100, $score);
+$barcolour = $c['bar'];
 
-echo '<div style="background:' . $c['bg'] . ';border:1px solid ' . $c['text'] . '33;border-radius:8px;padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">';
+echo '<div style="background:' . $c['bg'] . ';border:1px solid ' . $c['text'] . '33;border-radius:8px;padding:1.25rem '
+    . '1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">';
 
 echo '<div style="text-align:center;">';
 echo '<div style="font-size:2.8rem;font-weight:800;color:' . $c['text'] . ';">' . $score . '</div>';
@@ -122,53 +178,67 @@ echo '<div style="font-size:0.8rem;color:' . $c['text'] . ';font-weight:600;">/ 
 echo '</div>';
 
 echo '<div style="flex:1;min-width:200px;">';
-echo '<div style="font-size:1.2rem;font-weight:700;color:' . $c['text'] . ';margin-bottom:0.25rem;">' . strtoupper($c['label']) . ' RISK</div>';
-echo '<div style="width:100%;max-width:300px;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin-bottom:0.35rem;">';
-echo '<div style="width:' . $bar_w . '%;height:100%;background:' . $bar_colour . ';border-radius:5px;"></div>';
+echo '<div style="font-size:1.2rem;font-weight:700;color:' . $c['text'] . ';margin-bottom:0.25rem;">'
+    . strtoupper($c['label']) . ' '
+    . core_text::strtoupper(get_string('riskword', 'plagiarism_essayguard')) . '</div>';
+echo '<div '
+    . 'style="width:100%;max-width:300px;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin-bottom:0.35rem;">';
+echo '<div style="width:' . $barw . '%;height:100%;background:' . $barcolour . ';border-radius:5px;"></div>';
 echo '</div>';
 echo '<div style="font-size:0.82rem;color:#6b7280;">';
-echo 'Last scored: ' . userdate((int)($sc->timemodified ?? 0), get_string('strftimedatetimeshort', 'langconfig'));
+echo get_string(
+    'lastscored',
+    'plagiarism_essayguard',
+    userdate((int)($sc->timemodified ?? 0), get_string('strftimedatetimeshort', 'langconfig'))
+);
 echo '</div>';
 echo '</div>';
 
 echo '<div style="font-size:0.8rem;color:#6b7280;line-height:1.9;">';
-echo '<span style="color:#166534;font-weight:600;">&#9679; LOW</span>: 0–29 &nbsp; ';
-echo '<span style="color:#c2410c;font-weight:600;">&#9679; MEDIUM</span>: 30–64 &nbsp; ';
-echo '<span style="color:#991b1b;font-weight:600;">&#9679; HIGH</span>: 65–100';
+echo '<span style="color:#166534;font-weight:600;">&#9679; ' . strtoupper($egrisklow) . '</span>: 0–29 &nbsp; ';
+echo '<span style="color:#c2410c;font-weight:600;">&#9679; ' . strtoupper($egriskmedium) . '</span>: 30–64 &nbsp; ';
+echo '<span style="color:#991b1b;font-weight:600;">&#9679; ' . strtoupper($egriskhigh) . '</span>: 65–100';
 echo '</div>';
 
 echo '</div>';
 
-// ── Baseline confidence ───────────────────────────────────────────────────────
+/* ── Baseline confidence ─────────────────────────────────────────────────────── */
 
 $bs      = $sc->baseline_status ?? 'none';
-$bs_fp   = $DB->get_record('plagiarism_essayguard_fp', ['userid' => $userid]);
-$bs_samples = $bs_fp ? (int)$bs_fp->samplecount : 0;
+$bsfp   = $DB->get_record('plagiarism_essayguard_fp', ['userid' => $userid]);
+$bssamples = $bsfp ? (int)$bsfp->samplecount : 0;
 switch ($bs) {
     case 'stable':
-        $bslabel = 'Stable (' . $bs_samples . ' submissions)';
+        $bslabel = get_string('baselinestable', 'plagiarism_essayguard', $bssamples);
         $bsbg    = '#e8f5e9';
-        $bstc = '#166534';
+        $bstc    = '#166534';
         break;
     case 'preliminary':
-        $bslabel = 'Building (' . $bs_samples . '/5 submissions)';
+        $bslabel = get_string('baselinebuilding', 'plagiarism_essayguard', $bssamples);
         $bsbg    = '#fffde7';
-        $bstc = '#92400e';
+        $bstc    = '#92400e';
         break;
     default:
-        $bslabel = 'No baseline yet';
+        $bslabel = get_string('no_baseline', 'plagiarism_essayguard');
         $bsbg    = '#f5f5f5';
-        $bstc = '#6b7280';
+        $bstc    = '#6b7280';
         break;
 }
-echo '<div style="display:inline-block;padding:0.5rem 1rem;border-radius:6px;background:' . $bsbg . ';margin-bottom:1.5rem;font-size:0.85rem;">';
-echo '<span style="color:' . $bstc . ';font-weight:600;">Baseline Confidence:</span> <span style="color:#374151;">' . s($bslabel) . '</span>';
+echo '<div style="display:inline-block;padding:0.5rem 1rem;border-radius:6px;background:' . $bsbg
+    . ';margin-bottom:1.5rem;font-size:0.85rem;">';
+echo '<span style="color:' . $bstc . ';font-weight:600;">'
+    . get_string('baseline_confidence', 'plagiarism_essayguard') . ':</span>'
+    . ' <span style="color:#374151;">' . s($bslabel) . '</span>';
 echo '</div>';
 
-// ── Indicators ────────────────────────────────────────────────────────────────
+/* ── Indicators ──────────────────────────────────────────────────────────────── */
 
 if (!empty($explanations)) {
-    echo html_writer::tag('h3', 'Indicators', ['style' => 'margin-bottom:0.75rem;']);
+    echo html_writer::tag(
+        'h3',
+        get_string('indicatorsheading', 'plagiarism_essayguard'),
+        ['style' => 'margin-bottom:0.75rem;']
+    );
     echo html_writer::start_tag('ul', ['style' => 'padding-left:1.25rem;margin-bottom:2rem;']);
     foreach ($explanations as $exp) {
         echo html_writer::tag('li', s($exp), ['style' => 'margin-bottom:0.35rem;']);
@@ -176,29 +246,78 @@ if (!empty($explanations)) {
     echo html_writer::end_tag('ul');
 }
 
-// ── Key metrics table ─────────────────────────────────────────────────────────
+/* ── Key metrics table ───────────────────────────────────────────────────────── */
 
-$metric_rows = [
-    ['Total keystrokes',      (int)($sc->total_keystrokes  ?? 0)],
-    ['Paste events',          (int)($sc->paste_events      ?? 0)],
-    ['Backspace count',       (int)($sc->backspace_count   ?? 0)],
-    ['Delete count',          (int)($sc->delete_count      ?? 0)],
-    ['Avg WPM',               number_format((float)($sc->average_wpm    ?? 0), 1)],
-    ['WPM std dev',           number_format((float)($sc->wpm_std_dev    ?? 0), 1)],
-    ['Pause count',           (int)($sc->pause_count       ?? 0)],
-    ['Typing time (s)',       round((int)($sc->typing_time ?? 0) / 1000, 1)],
-    ['Idle time (s)',         round((int)($sc->idle_time   ?? 0) / 1000, 1)],
-    ['Entropy score',         number_format((float)($sc->entropy_score  ?? 0), 3)],
-    ['Interkey mean (ms)',    number_format((float)($sc->interkey_mean  ?? 0), 1)],
-    ['Sentence variance',     number_format((float)($sc->sentence_variance ?? 0), 3)],
-    ['Vocab diversity',       number_format((float)($sc->vocab_diversity   ?? 0), 3)],
-    ['Baseline deviation',    number_format((float)($sc->baseline_deviation ?? 0), 3)],
+$metricrows = [
+    [get_string('metric_totalkeystrokes', 'plagiarism_essayguard'), (int)($sc->total_keystrokes ?? 0)],
+    [get_string('metric_pastes', 'plagiarism_essayguard'), (int)($sc->paste_events ?? 0)],
+    [get_string('metric_backspace', 'plagiarism_essayguard'), (int)($sc->backspace_count ?? 0)],
+    [get_string('metric_delete', 'plagiarism_essayguard'), (int)($sc->delete_count ?? 0)],
+    [get_string(
+        'metric_avgwpm',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->average_wpm ?? 0),
+        1
+    )],
+    [get_string(
+        'metric_wpmstddev',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->wpm_std_dev ?? 0),
+        1
+    )],
+    [get_string('metric_pausecount', 'plagiarism_essayguard'), (int)($sc->pause_count ?? 0)],
+    [get_string(
+        'metric_typingtime',
+        'plagiarism_essayguard'),
+            round((int)($sc->typing_time ?? 0) / 1000,
+        1
+    )],
+    [get_string(
+        'metric_idletime',
+        'plagiarism_essayguard'),
+            round((int)($sc->idle_time ?? 0) / 1000,
+        1
+    )],
+    [get_string(
+        'metric_entropy',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->entropy_score ?? 0),
+        3
+    )],
+    [get_string(
+        'metric_interkeymean',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->interkey_mean ?? 0),
+        1
+    )],
+    [get_string(
+        'metric_sentencevariance',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->sentence_variance ?? 0),
+        3
+    )],
+    [get_string(
+        'metric_vocabdiversity',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->vocab_diversity ?? 0),
+        3
+    )],
+    [get_string(
+        'metric_baselinedev',
+        'plagiarism_essayguard'),
+            number_format((float)($sc->baseline_deviation ?? 0),
+        3
+    )],
 ];
 
-echo html_writer::tag('h3', 'Behavioural Metrics', ['style' => 'margin-bottom:0.75rem;']);
+echo html_writer::tag(
+    'h3',
+    get_string('metricsheading', 'plagiarism_essayguard'),
+    ['style' => 'margin-bottom:0.75rem;']
+);
 echo html_writer::start_tag('table', ['class' => 'generaltable', 'style' => 'max-width:520px;']);
 echo html_writer::start_tag('tbody');
-foreach ($metric_rows as [$label, $value]) {
+foreach ($metricrows as [$label, $value]) {
     echo html_writer::start_tag('tr');
     echo html_writer::tag('td', $label, ['style' => 'padding:0.4rem 0.75rem;font-weight:500;']);
     echo html_writer::tag('td', $value, ['style' => 'padding:0.4rem 0.75rem;']);
@@ -207,139 +326,255 @@ foreach ($metric_rows as [$label, $value]) {
 echo html_writer::end_tag('tbody');
 echo html_writer::end_tag('table');
 
-// ── Signal Breakdown (v1.2.113+) ──────────────────────────────────────────────
+/* ── Signal Breakdown (v1.2.113+) ────────────────────────────────────────────── */
 
-$signal_breakdown = isset($metrics['signal_breakdown']) ? $metrics['signal_breakdown'] : null;
+$signalbreakdown = isset($metrics['signal_breakdown']) ? $metrics['signal_breakdown'] : null;
 
-// Signal definitions: number → [name, max_pts, description]
-$signal_info = [
-    1  => ['Paste / clipboard insert',            60, 'Any paste event or large clipboard insertion detected.'],
-    2  => ['Large text insertions (>20 chars)',    20, 'Input events with delta >20 characters (TinyMCE clipboard proxy).'],
-    3  => ['Typing speed',                         30, 'Characters-per-second across the session (>8 cps = suspicious, >15 = superhuman).'],
-    4  => ['Thinking pauses absent',               20, 'Zero major pauses (>2 s) for substantial content — no inter-typing gaps recorded.'],
-    5  => ['Correction / backspace rate',          15, 'Backspace ratio <2% of keystrokes, or zero corrections on a paste-only session.'],
-    6  => ['Near-zero session time',               25, 'Entire session typing time <10 s with >50 chars — content appeared almost instantly.'],
-    7  => ['Typing rhythm entropy',                10, 'Shannon IKI entropy <0.35 (TypeShield threshold) or SD-based entropy <0.3.'],
-    8  => ['Sentence length uniformity',           10, 'Sentence length variance <6 (very uniform) or <12 (somewhat uniform).'],
-    9  => ['Vocabulary diversity',                  5, 'Type-token ratio <0.30 (very low) or <0.40 (low).'],
-    10 => ['IKI autocorrelation [TypeShield]',     10, '|autocorr − 0.1| > 0.5 flags robotic or artificially jittered rhythm.'],
-    11 => ['Speed-burst consistency [TypeShield]', 10, 'Speed CV <0.30 across ≥3 WPM windows — implausibly constant typing rate.'],
-    12 => ['Keystroke ratio [TypeShield]',         10, 'keystrokes ÷ text_chars <0.5 — most content inserted rather than typed.'],
-    13 => ['Server-side CPS [fallback]',           50, 'Server timing: text_chars ÷ attempt duration >10 cps (impossible to type) or >4 cps (very fast).'],
+// Signal definitions: number → [name, max_pts, description].
+$signalinfo = [
+    1  => [get_string(
+        'sig1name',
+        'plagiarism_essayguard'), 60,
+            get_string('sig1desc',
+        'plagiarism_essayguard'
+    )],
+    2  => [get_string(
+        'sig2name',
+        'plagiarism_essayguard'), 20,
+            get_string('sig2desc',
+        'plagiarism_essayguard'
+    )],
+    3  => [get_string(
+        'sig3name',
+        'plagiarism_essayguard'), 30,
+            get_string('sig3desc',
+        'plagiarism_essayguard'
+    )],
+    4  => [get_string(
+        'sig4name',
+        'plagiarism_essayguard'), 20,
+            get_string('sig4desc',
+        'plagiarism_essayguard'
+    )],
+    5  => [get_string(
+        'sig5name',
+        'plagiarism_essayguard'), 15,
+            get_string('sig5desc',
+        'plagiarism_essayguard'
+    )],
+    6  => [get_string(
+        'sig6name',
+        'plagiarism_essayguard'), 25,
+            get_string('sig6desc',
+        'plagiarism_essayguard'
+    )],
+    7  => [get_string(
+        'sig7name',
+        'plagiarism_essayguard'), 10,
+            get_string('sig7desc',
+        'plagiarism_essayguard'
+    )],
+    8  => [get_string(
+        'sig8name',
+        'plagiarism_essayguard'), 10,
+            get_string('sig8desc',
+        'plagiarism_essayguard'
+    )],
+    9  => [get_string(
+        'sig9name',
+        'plagiarism_essayguard'), 5,
+            get_string('sig9desc',
+        'plagiarism_essayguard'
+    )],
+    10 => [get_string(
+        'sig10name',
+        'plagiarism_essayguard'), 10,
+            get_string('sig10desc',
+        'plagiarism_essayguard'
+    )],
+    11 => [get_string(
+        'sig11name',
+        'plagiarism_essayguard'), 10,
+            get_string('sig11desc',
+        'plagiarism_essayguard'
+    )],
+    12 => [get_string(
+        'sig12name',
+        'plagiarism_essayguard'), 10,
+            get_string('sig12desc',
+        'plagiarism_essayguard'
+    )],
+    13 => [get_string(
+        'sig13name',
+        'plagiarism_essayguard'), 50,
+            get_string('sig13desc',
+        'plagiarism_essayguard'
+    )],
 ];
 
 /**
  * Build evidence detail strings for a given signal number.
  * Returns an array of human-readable strings showing the actual computed values.
+ *
+ * @param int    $num The signal number, 1 to 13.
+ * @param object $sc  The score record holding the stored metric columns.
+ * @param array  $m   The decoded metricsjson for the same record.
+ * @return string[] Human-readable evidence lines for this signal; empty when the
+ *                  signal has no measurements to show.
  */
-function essayguard_signal_evidence(int $num, object $sc, array $m): array {
+function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): array {
     $parts = [];
     switch ($num) {
         case 1:
             $pf = isset($m['paste_frac']) ? round((float)$m['paste_frac'] * 100, 1) : null;
             $pe = (int)($sc->paste_events ?? 0);
             if ($pf !== null) {
-                $parts[] = 'Paste fraction: ' . $pf . '% of answer';
+                $parts[] = get_string('evidence_pastefraction', 'plagiarism_essayguard', $pf);
             }
             if ($pe > 0) {
-                $parts[] = 'Paste events captured: ' . $pe;
+                $parts[] = get_string('evidence_pasteevents', 'plagiarism_essayguard', $pe);
             }
             $kr = isset($m['keystroke_ratio']) ? round((float)$m['keystroke_ratio'], 3) : null;
             if ($kr !== null && $kr < 0.25) {
-                $parts[] = 'Keystroke ratio: ' . $kr . ' (very low — paste suspected)';
+                $parts[] = get_string('evidence_keystrokeratiolow', 'plagiarism_essayguard', $kr);
             }
             break;
         case 2:
             $ks = (int)($sc->total_keystrokes ?? 0);
             if ($ks > 0) {
-                $parts[] = 'Keystrokes captured: ' . $ks;
+                $parts[] = get_string('evidence_keystrokescaptured', 'plagiarism_essayguard', $ks);
             }
             break;
         case 3:
             $cps = isset($m['chars_per_sec']) ? round((float)$m['chars_per_sec'], 2) : null;
             if ($cps !== null) {
-                $threshold = $cps > 15 ? ' > 15 — superhuman' : ($cps > 8 ? ' > 8 — very fast' : '');
-                $parts[] = 'Speed: ' . $cps . ' chars/sec' . $threshold;
+                $threshold = $cps > 15
+                    ? get_string('thr_speedsuperhuman', 'plagiarism_essayguard')
+                    : ($cps > 8 ? get_string('thr_speedveryfast', 'plagiarism_essayguard') : '');
+                $parts[] = get_string('evidence_speed', 'plagiarism_essayguard', $cps) . $threshold;
             }
             break;
         case 4:
             $pc = (int)($sc->pause_count ?? 0);
-            $parts[] = 'Pauses > 2 s recorded: ' . $pc;
+            $parts[] = get_string('evidence_pauses', 'plagiarism_essayguard', $pc);
             break;
         case 5:
             $ks = (int)($sc->total_keystrokes ?? 0);
             $bs = (int)($sc->backspace_count ?? 0) + (int)($sc->delete_count ?? 0);
             if ($ks > 0) {
                 $ratio = round($bs / $ks * 100, 1);
-                $parts[] = 'Correction ratio: ' . $ratio . '% of keystrokes (' . $bs . ' backspace/delete)';
-            } elseif ($bs === 0) {
-                $parts[] = 'Zero corrections recorded';
+                $parts[] = get_string(
+                    'evidence_correctionratio',
+                    'plagiarism_essayguard',
+                    (object) ['ratio' => $ratio, 'count' => $bs]
+                );
+            } else if ($bs === 0) {
+                $parts[] = get_string('evidence_nocorrections', 'plagiarism_essayguard');
             }
             break;
         case 6:
             $tt = (int)($sc->typing_time ?? 0);
-            $parts[] = 'Typing time: ' . round($tt / 1000, 1) . ' s';
+            $parts[] = get_string('evidence_typingtime', 'plagiarism_essayguard', round($tt / 1000, 1));
             break;
         case 7:
             $es = (float)($sc->entropy_score ?? 0);
             if ($es > 0) {
-                $threshold = $es < 0.3 ? ' < 0.30 — robotic' : ($es < 0.5 ? ' < 0.50 — borderline' : '');
-                $parts[] = 'Entropy score: ' . number_format($es, 3) . $threshold;
+                $threshold = $es < 0.3
+                    ? get_string('thr_entropyrobotic', 'plagiarism_essayguard')
+                    : ($es < 0.5 ? get_string('thr_entropyborderline', 'plagiarism_essayguard') : '');
+                $parts[] = get_string(
+                    'evidence_entropyscore',
+                    'plagiarism_essayguard',
+                    number_format($es, 3)
+                ) . $threshold;
             }
             if (isset($m['iki_shannon'])) {
                 $iki = round((float)$m['iki_shannon'], 3);
-                $threshold2 = $iki < 0.35 ? ' < 0.35 — TypeShield fired' : ($iki < 0.55 ? ' < 0.55 — borderline' : '');
-                $parts[] = 'Shannon IKI entropy: ' . $iki . $threshold2;
+                $threshold2 = $iki < 0.35
+                    ? get_string('thr_ikifired', 'plagiarism_essayguard')
+                    : ($iki < 0.55 ? get_string('thr_ikiborderline', 'plagiarism_essayguard') : '');
+                $parts[] = get_string('evidence_shannoniki', 'plagiarism_essayguard', $iki) . $threshold2;
             }
             break;
         case 8:
             $sv = (float)($sc->sentence_variance ?? 0);
             if ($sv > 0 || $sv === 0.0) {
-                $threshold = $sv < 6 ? ' < 6 — very uniform' : ($sv < 12 ? ' < 12 — somewhat uniform' : '');
-                $parts[] = 'Sentence length variance: ' . number_format($sv, 3) . $threshold;
+                $threshold = $sv < 6
+                    ? get_string('thr_varveryuniform', 'plagiarism_essayguard')
+                    : ($sv < 12 ? get_string('thr_varsomewhatuniform', 'plagiarism_essayguard') : '');
+                $parts[] = get_string(
+                    'evidence_sentencevariance',
+                    'plagiarism_essayguard',
+                    number_format($sv, 3)
+                ) . $threshold;
             }
-            $sc_ling = isset($m['sentence_count_ling']) ? (int)$m['sentence_count_ling'] : null;
-            if ($sc_ling !== null) {
-                $parts[] = 'Sentences analysed: ' . $sc_ling;
+            $scling = isset($m['sentence_count_ling']) ? (int)$m['sentence_count_ling'] : null;
+            if ($scling !== null) {
+                $parts[] = get_string('evidence_sentencecount', 'plagiarism_essayguard', $scling);
             }
             break;
         case 9:
             $vd = (float)($sc->vocab_diversity ?? 0);
             if ($vd > 0) {
-                $threshold = $vd < 0.30 ? ' < 0.30 — very low' : ($vd < 0.40 ? ' < 0.40 — low' : '');
-                $parts[] = 'Type-token ratio: ' . number_format($vd, 3) . $threshold;
+                $threshold = $vd < 0.30
+                    ? get_string('thr_ttrverylow', 'plagiarism_essayguard')
+                    : ($vd < 0.40 ? get_string('thr_ttrlow', 'plagiarism_essayguard') : '');
+                $parts[] = get_string(
+                    'evidence_typetoken',
+                    'plagiarism_essayguard',
+                    number_format($vd, 3)
+                ) . $threshold;
             }
             break;
         case 10:
             if (isset($m['iki_autocorr'])) {
                 $ac = round((float)$m['iki_autocorr'], 3);
                 $dev = round(abs($ac - 0.1), 3);
-                $threshold = $dev > 0.5 ? ' dev > 0.5 — robotic' : ($dev > 0.3 ? ' dev > 0.3 — suspicious' : '');
-                $parts[] = 'IKI autocorrelation: ' . $ac . ' (|autocorr − 0.1| = ' . $dev . $threshold . ')';
+                $threshold = $dev > 0.5
+                    ? get_string('thr_autocorrrobotic', 'plagiarism_essayguard')
+                    : ($dev > 0.3 ? get_string('thr_autocorrsuspicious', 'plagiarism_essayguard') : '');
+                $parts[] = get_string(
+                    'evidence_ikiautocorr',
+                    'plagiarism_essayguard',
+                    (object) [
+                        'value' => $ac, 'dev' => $dev, 'threshold' => $threshold,
+                        ]
+                );
             }
             if (isset($m['iki_sample_count'])) {
-                $parts[] = 'IKI samples: ' . (int)$m['iki_sample_count'];
+                $parts[] = get_string(
+                    'evidence_ikisamples',
+                    'plagiarism_essayguard',
+                    (int)$m['iki_sample_count']
+                );
             }
             break;
         case 11:
             if (isset($m['speed_cv'])) {
                 $cv = round((float)$m['speed_cv'], 3);
-                $threshold = $cv < 0.30 ? ' < 0.30 — constant rate' : ($cv < 0.50 ? ' < 0.50 — low variation' : '');
-                $parts[] = 'Speed coefficient of variation: ' . $cv . $threshold;
+                $threshold = $cv < 0.30
+                    ? get_string('thr_cvconstant', 'plagiarism_essayguard')
+                    : ($cv < 0.50 ? get_string('thr_cvlowvariation', 'plagiarism_essayguard') : '');
+                $parts[] = get_string('evidence_speedcv', 'plagiarism_essayguard', $cv) . $threshold;
             }
             break;
         case 12:
             $kr = isset($m['keystroke_ratio']) ? round((float)$m['keystroke_ratio'], 3) : null;
             if ($kr !== null) {
-                $threshold = $kr < 0.5 ? ' < 0.5 — TypeShield fired' : ($kr < 0.8 ? ' < 0.8 — low' : '');
-                $parts[] = 'Keystroke ratio: ' . $kr . ' (keystrokes ÷ chars)' . $threshold;
+                $threshold = $kr < 0.5
+                    ? get_string('thr_krfired', 'plagiarism_essayguard')
+                    : ($kr < 0.8 ? get_string('thr_krlow', 'plagiarism_essayguard') : '');
+                $parts[] = get_string('evidence_keystrokeratiochars', 'plagiarism_essayguard', $kr)
+                    . $threshold;
             }
             break;
         case 13:
             $scps = isset($m['server_cps']) ? round((float)$m['server_cps'], 2) : null;
             if ($scps !== null && $scps > 0) {
-                $threshold = $scps > 10 ? ' > 10 — impossible to type' : ($scps > 4 ? ' > 4 — very fast' : '');
-                $parts[] = 'Server-side speed: ' . $scps . ' chars/sec' . $threshold;
+                $threshold = $scps > 10
+                    ? get_string('thr_scpsimpossible', 'plagiarism_essayguard')
+                    : ($scps > 4 ? get_string('thr_scpsveryfast', 'plagiarism_essayguard') : '');
+                $parts[] = get_string('evidence_servercps', 'plagiarism_essayguard', $scps) . $threshold;
             }
             break;
     }
@@ -348,206 +583,256 @@ function essayguard_signal_evidence(int $num, object $sc, array $m): array {
 
 /**
  * Render a signal breakdown table for one record.
- * @param array|null  $breakdown   signal_breakdown array from metricsjson, or null for pre-v1.2.113.
- * @param object      $sc_rec      The DB score record (for metric columns).
+ * @param array|null  $breakdown   The signal_breakdown array from metricsjson, or null for
+ *                                 records written before v1.2.113, which did not store one.
+ * @param object      $screc      The DB score record (for metric columns).
  * @param array       $mets        Decoded metricsjson array.
- * @param array       $sig_info    Signal definitions array.
+ * @param array       $siginfo    Signal definitions array.
  * @param array       $riskc       Risk colour map.
- * @param int         $final_score The final capped score (0-100).
+ * @param int         $finalscore The final capped score (0-100).
+ * @return void
  */
-function essayguard_render_signal_table(
+function plagiarism_essayguard_render_signal_table(
     ?array $breakdown,
-    object $sc_rec,
-    array  $mets,
-    array  $sig_info,
-    array  $riskc,
-    int    $final_score
+    object $screc,
+    array $mets,
+    array $siginfo,
+    array $riskc,
+    int $finalscore
 ): void {
     if ($breakdown === null) {
-        echo '<p style="color:#9ca3af;font-style:italic;font-size:0.85rem;">Signal breakdown available for v1.2.113+ records only.</p>';
+        echo '<p style="color:#9ca3af;font-style:italic;font-size:0.85rem;">'
+            . get_string('nobreakdown', 'plagiarism_essayguard') . '</p>';
         return;
     }
 
-    $baseline_dev     = (float)($sc_rec->baseline_deviation ?? 0);
-    $baseline_dev_pts = $baseline_dev > 0.3
-        ? (int)round(min(15.0, $baseline_dev * 15)) : 0;
-    $ling_fallback_pts = (int)($mets['linguistic_fallback_pts'] ?? 0);
-    $signal_sum        = array_sum($breakdown);
-    $total_pre_cap     = $signal_sum + $baseline_dev_pts + $ling_fallback_pts;
+    $baselinedev     = (float)($screc->baseline_deviation ?? 0);
+    $baselinedevpts = $baselinedev > 0.3
+        ? (int)round(min(15.0, $baselinedev * 15)) : 0;
+    $lingfallbackpts = (int)($mets['linguistic_fallback_pts'] ?? 0);
+    $signalsum        = array_sum($breakdown);
+    $totalprecap     = $signalsum + $baselinedevpts + $lingfallbackpts;
 
-    echo '<p style="font-size:0.8rem;color:#6b7280;margin-bottom:0.5rem;">Each row shows how many points the signal contributed. The false-positive cap may reduce the final score below the pre-cap total.</p>';
+    echo '<p style="font-size:0.8rem;color:#6b7280;margin-bottom:0.5rem;">'
+        . get_string('signalbreakdownnote', 'plagiarism_essayguard') . '</p>';
 
     echo '<details style="font-size:0.82rem;margin-bottom:0.65rem;">';
-    echo '<summary style="cursor:pointer;display:inline-flex;align-items:center;gap:0.4rem;padding:0.2rem 0.65rem;border-radius:5px;border:1px solid #e5e7eb;background:#f9fafb;color:#374151;font-weight:600;font-size:0.8rem;list-style:none;-webkit-appearance:none;">&#9432;&nbsp;Signal status key</summary>';
-    echo '<div style="margin-top:0.4rem;padding:0.65rem 0.9rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;max-width:620px;display:flex;flex-direction:column;gap:0.5rem;">';
+    echo '<summary style="cursor:pointer;display:inline-flex;align-items:center;gap:0.4rem;padding:0.2rem '
+        . '0.65rem;border-radius:5px;border:1px solid '
+        . '#e5e7eb;background:#f9fafb;color:#374151;font-weight:600;font-size:0.8rem;'
+        . 'list-style:none;-webkit-appearance:none;">&#9432;&nbsp;'
+        . get_string('statuskey', 'plagiarism_essayguard') . '</summary>';
+    echo '<div style="margin-top:0.4rem;padding:0.65rem 0.9rem;background:#f9fafb;border:1px solid '
+        . '#e5e7eb;border-radius:6px;max-width:620px;display:flex;flex-direction:column;gap:0.5rem;">';
     echo '<div style="display:flex;gap:0.65rem;align-items:baseline;">'
-        . '<span style="min-width:72px;font-size:0.8rem;font-weight:700;color:#991b1b;white-space:nowrap;flex-shrink:0;">&#9679;&nbsp;Fired</span>'
-        . '<span style="font-size:0.82rem;color:#374151;">This signal detected a suspicious behaviour pattern and its points were added to the risk score.</span>'
+        . '<span style="min-width:72px;font-size:0.8rem;font-weight:700;color:#991b1b;white-space:nowrap;flex-shrink:0;">'
+        . '&#9679;&nbsp;' . get_string('statusfired', 'plagiarism_essayguard') . '</span>'
+        . '<span style="font-size:0.82rem;color:#374151;">'
+        . get_string('statusfireddesc', 'plagiarism_essayguard') . '</span>'
         . '</div>';
     echo '<div style="display:flex;gap:0.65rem;align-items:baseline;">'
-        . '<span style="min-width:72px;font-size:0.8rem;font-weight:600;color:#9ca3af;white-space:nowrap;flex-shrink:0;">&#9711;&nbsp;Silent</span>'
-        . '<span style="font-size:0.82rem;color:#374151;">This signal was evaluated but found nothing suspicious. No points were added.</span>'
+        . '<span style="min-width:72px;font-size:0.8rem;font-weight:600;color:#9ca3af;white-space:nowrap;flex-shrink:0;">'
+        . '&#9711;&nbsp;' . get_string('statussilent', 'plagiarism_essayguard') . '</span>'
+        . '<span style="font-size:0.82rem;color:#374151;">'
+        . get_string('statussilentdesc', 'plagiarism_essayguard') . '</span>'
         . '</div>';
     echo '<div style="display:flex;gap:0.65rem;align-items:baseline;">'
-        . '<span style="min-width:72px;font-size:0.8rem;font-weight:600;color:#b45309;white-space:nowrap;flex-shrink:0;">Applied</span>'
-        . '<span style="font-size:0.82rem;color:#374151;">A supplementary factor (baseline deviation or linguistic fallback) was active and contributed additional points to the score.</span>'
+        . '<span style="min-width:72px;font-size:0.8rem;font-weight:600;color:#b45309;white-space:nowrap;flex-shrink:0;">'
+        . get_string('statusapplied', 'plagiarism_essayguard') . '</span>'
+        . '<span style="font-size:0.82rem;color:#374151;">'
+        . get_string('statusapplieddesc', 'plagiarism_essayguard') . '</span>'
         . '</div>';
     echo '</div></details>';
 
     echo '<table class="generaltable" style="max-width:800px;">';
     echo '<thead><tr>';
-    foreach (['#', 'Signal', 'Max', 'Pts', 'Status', 'Evidence'] as $h) {
+    $signalheaders = [
+        get_string('colnum', 'plagiarism_essayguard'),
+        get_string('colsignal', 'plagiarism_essayguard'),
+        get_string('colmax', 'plagiarism_essayguard'),
+        get_string('colpts', 'plagiarism_essayguard'),
+        get_string('colstatus', 'plagiarism_essayguard'),
+        get_string('colevidence', 'plagiarism_essayguard'),
+    ];
+    foreach ($signalheaders as $h) {
         echo '<th style="padding:0.4rem 0.75rem;white-space:nowrap;">' . $h . '</th>';
     }
     echo '</tr></thead><tbody>';
 
-    foreach ($sig_info as $num => [$sname, $smax, $sdesc]) {
+    foreach ($siginfo as $num => [$sname, $smax, $sdesc]) {
         $pts   = (int)($breakdown[$num] ?? 0);
         $fired = $pts > 0;
 
-        $pts_cell = $fired
+        $ptscell = $fired
             ? '<span style="font-weight:700;color:#991b1b;">+' . $pts . '</span>'
             : '<span style="color:#9ca3af;">0</span>';
 
-        $status_cell = $fired
-            ? '<span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" title="Fired — This signal detected a suspicious behaviour pattern and its points were added to the risk score.">&#9679; Fired</span>'
-            : '<span style="color:#d1d5db;" title="Silent — This signal was evaluated but found nothing suspicious. No points were added.">&#9711; Silent</span>';
+        $statuscell = $fired
+            ? '<span style="display:inline-block;padding:0.15rem '
+                . '0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" '
+                . 'title="'
+                . s(get_string('statusfiredtitle', 'plagiarism_essayguard')) . '">&#9679; '
+                . get_string('statusfired', 'plagiarism_essayguard') . '</span>'
+            : '<span style="color:#d1d5db;" title="'
+                . s(get_string('statussilenttitle', 'plagiarism_essayguard')) . '">&#9711; '
+                . get_string('statussilent', 'plagiarism_essayguard') . '</span>';
 
-        $evidence_parts = essayguard_signal_evidence($num, $sc_rec, $mets);
-        $evidence_html  = '';
-        if (!empty($evidence_parts)) {
-            $evidence_html = implode('<br>', array_map('s', $evidence_parts));
+        $evidenceparts = plagiarism_essayguard_signal_evidence($num, $screc, $mets);
+        $evidencehtml  = '';
+        if (!empty($evidenceparts)) {
+            $evidencehtml = implode('<br>', array_map('s', $evidenceparts));
         }
-        $evidence_html .= '<div style="margin-top:3px;color:#9ca3af;font-size:0.77rem;">' . s($sdesc) . '</div>';
+        $evidencehtml .= '<div style="margin-top:3px;color:#9ca3af;font-size:0.77rem;">' . s($sdesc) . '</div>';
 
-        $row_style = $fired ? 'background:#fffbeb;' : '';
-        echo '<tr style="' . $row_style . '">';
+        $rowstyle = $fired ? 'background:#fffbeb;' : '';
+        echo '<tr style="' . $rowstyle . '">';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;font-size:0.85rem;">' . $num . '</td>';
         echo '<td style="padding:0.4rem 0.75rem;font-weight:' . ($fired ? '600' : '400') . ';">' . s($sname) . '</td>';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;">' . $smax . '</td>';
-        echo '<td style="padding:0.4rem 0.75rem;">' . $pts_cell . '</td>';
-        echo '<td style="padding:0.4rem 0.75rem;">' . $status_cell . '</td>';
-        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;">' . $evidence_html . '</td>';
+        echo '<td style="padding:0.4rem 0.75rem;">' . $ptscell . '</td>';
+        echo '<td style="padding:0.4rem 0.75rem;">' . $statuscell . '</td>';
+        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;">' . $evidencehtml . '</td>';
         echo '</tr>';
     }
 
-    if ($baseline_dev_pts > 0) {
+    if ($baselinedevpts > 0) {
         echo '<tr style="background:#fffbeb;border-top:1px solid #e5e7eb;">';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;font-size:0.85rem;">—</td>';
-        echo '<td style="padding:0.4rem 0.75rem;font-weight:600;"><em>Baseline deviation bonus</em></td>';
+        echo '<td style="padding:0.4rem 0.75rem;font-weight:600;"><em>'
+            . get_string('baselinebonusname', 'plagiarism_essayguard') . '</em></td>';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;">15</td>';
-        echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:#991b1b;">+' . $baseline_dev_pts . '</span></td>';
-        echo '<td style="padding:0.4rem 0.75rem;"><span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" title="Applied — This supplementary factor was active and its points were added to the risk score.">Applied</span></td>';
-        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;"><div style="color:#6b7280;">Writing speed / pattern deviates significantly from this student\'s baseline.</div><div style="margin-top:3px;color:#9ca3af;font-size:0.77rem;">Deviation score: ' . number_format($baseline_dev, 3) . '</div></td>';
+        echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:#991b1b;">+'
+            . $baselinedevpts . '</span></td>';
+        echo '<td style="padding:0.4rem 0.75rem;"><span style="display:inline-block;padding:0.15rem '
+            . '0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" title="'
+            . s(get_string('appliedtitle', 'plagiarism_essayguard')) . '">'
+            . get_string('statusapplied', 'plagiarism_essayguard') . '</span></td>';
+        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;"><div style="color:#6b7280;">'
+            . get_string('baselinebonusdesc', 'plagiarism_essayguard')
+            . '</div><div style="margin-top:3px;color:#9ca3af;font-size:0.77rem;">'
+            . get_string('deviationscore', 'plagiarism_essayguard', number_format($baselinedev, 3))
+            . '</div></td>';
         echo '</tr>';
     }
 
-    if ($ling_fallback_pts > 0) {
+    if ($lingfallbackpts > 0) {
         echo '<tr style="background:#fffbeb;border-top:1px solid #e5e7eb;">';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;font-size:0.85rem;">—</td>';
-        echo '<td style="padding:0.4rem 0.75rem;font-weight:600;"><em>Linguistic pattern fallback</em></td>';
+        echo '<td style="padding:0.4rem 0.75rem;font-weight:600;"><em>'
+            . get_string('lingfallbackname', 'plagiarism_essayguard') . '</em></td>';
         echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;">35</td>';
-        echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:#991b1b;">+' . $ling_fallback_pts . '</span></td>';
-        echo '<td style="padding:0.4rem 0.75rem;"><span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" title="Applied — This supplementary factor was active and its points were added to the risk score.">Applied</span></td>';
-        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;color:#6b7280;">No keystroke events captured — sentence uniformity and vocabulary diversity used at elevated weights as the only available evidence.</td>';
+        echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:#991b1b;">+'
+            . $lingfallbackpts . '</span></td>';
+        echo '<td style="padding:0.4rem 0.75rem;"><span style="display:inline-block;padding:0.15rem '
+            . '0.5rem;border-radius:4px;font-size:0.78rem;font-weight:600;background:#fef2f2;color:#991b1b;" title="'
+            . s(get_string('appliedtitle', 'plagiarism_essayguard')) . '">'
+            . get_string('statusapplied', 'plagiarism_essayguard') . '</span></td>';
+        echo '<td style="padding:0.4rem 0.75rem;font-size:0.82rem;color:#6b7280;">'
+            . get_string('lingfallbackdesc', 'plagiarism_essayguard') . '</td>';
         echo '</tr>';
     }
 
     // Totals row.
-    $level    = \plagiarism_essayguard\local\service\analyser::risk_level($final_score);
-    $lc_text  = ($riskc[$level] ?? $riskc['low'])['text'];
+    $level    = \plagiarism_essayguard\local\service\analyser::risk_level($finalscore);
+    $lctext  = ($riskc[$level] ?? $riskc['low'])['text'];
     echo '<tr style="background:#f9fafb;border-top:2px solid #e5e7eb;font-weight:700;">';
     echo '<td style="padding:0.4rem 0.75rem;"></td>';
-    echo '<td style="padding:0.4rem 0.75rem;">Final Score (after cap)</td>';
+    echo '<td style="padding:0.4rem 0.75rem;">'
+        . get_string('finalscore', 'plagiarism_essayguard') . '</td>';
     echo '<td style="padding:0.4rem 0.75rem;color:#9ca3af;font-weight:400;">100</td>';
-    echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:' . $lc_text . ';">' . $final_score . '/100</span></td>';
-    $cap_note = '';
-    if ($total_pre_cap > $final_score) {
-        $cap_note = '<span style="font-size:0.8rem;color:#6b7280;font-weight:400;">Pre-cap total: ' . $total_pre_cap . '</span>';
+    echo '<td style="padding:0.4rem 0.75rem;"><span style="font-weight:700;color:' . $lctext . ';">'
+        . $finalscore . '/100</span></td>';
+    $capnote = '';
+    if ($totalprecap > $finalscore) {
+        $capnote = '<span style="font-size:0.8rem;color:#6b7280;font-weight:400;">'
+            . get_string('precaptotal', 'plagiarism_essayguard', $totalprecap) . '</span>';
     }
-    echo '<td style="padding:0.4rem 0.75rem;">' . $cap_note . '</td>';
+    echo '<td style="padding:0.4rem 0.75rem;">' . $capnote . '</td>';
     echo '<td style="padding:0.4rem 0.75rem;"></td>';
     echo '</tr>';
 
     echo '</tbody></table>';
 }
 
-echo html_writer::tag('h3', 'Signal Breakdown',
-    ['style' => 'margin-top:2rem;margin-bottom:0.5rem;']);
+echo html_writer::tag(
+    'h3',
+    get_string('signalbreakdownheading', 'plagiarism_essayguard'),
+    ['style' => 'margin-top:2rem;margin-bottom:0.5rem;']
+);
 
-essayguard_render_signal_table($signal_breakdown, $sc, $metrics, $signal_info, $risk_colours, $score);
+plagiarism_essayguard_render_signal_table($signalbreakdown, $sc, $metrics, $signalinfo, $riskcolours, $score);
 
-// ── Per-question breakdown (quizzes with multiple essay questions) ─────────────
+/* ── Per-question breakdown (quizzes with multiple essay questions) ───────────── */
 
-$question_records = $DB->get_records_sql(
+$questionrecords = $DB->get_records_sql(
     "SELECT * FROM {plagiarism_essayguard_sc}
       WHERE userid = :userid AND cmid = :cmid AND qslot > 0
    ORDER BY qslot ASC, timemodified DESC",
     ['userid' => $userid, 'cmid' => $cmid]
 );
 
-$per_question = [];
-foreach ($question_records as $qr) {
-    if (!isset($per_question[(int)$qr->qslot])) {
-        $per_question[(int)$qr->qslot] = $qr;
+$perquestion = [];
+foreach ($questionrecords as $qr) {
+    if (!isset($perquestion[(int)$qr->qslot])) {
+        $perquestion[(int)$qr->qslot] = $qr;
     }
 }
 
-// ── Load question texts + student answers from quiz DB ─────────────────────
+/* ── Load question texts + student answers from quiz DB ───────────────────── */
 // Retrieves question text (from question.questiontext) and student answer
 // (from question_attempt_step_data) for each slot, keyed by slot number.
 // Only runs for quiz attempts (attemptkey format: qa_{id}).
-$eg_question_texts  = [];  // slot => plain-text question
-$eg_answer_texts    = [];  // slot => plain-text student answer
+$egquestiontexts  = [];  // Slot => plain-text question.
+$eganswertexts    = [];  // Slot => plain-text student answer.
 
-if (!empty($per_question)) {
-    $ak_row = $DB->get_record_sql(
+if (!empty($perquestion)) {
+    $akrow = $DB->get_record_sql(
         "SELECT attemptkey FROM {plagiarism_essayguard_sc}
           WHERE userid = :userid AND cmid = :cmid AND qslot > 0
        ORDER BY timemodified DESC",
         ['userid' => $userid, 'cmid' => $cmid],
         IGNORE_MISSING
     );
-    if ($ak_row && preg_match('/^qa_(\d+)$/', (string)$ak_row->attemptkey, $ak_m)) {
-        $eg_qattemptid = (int)$ak_m[1];
-        $eg_qa_attempt = $DB->get_record('quiz_attempts', ['id' => $eg_qattemptid], 'uniqueid');
-        if ($eg_qa_attempt) {
+    if ($akrow && preg_match('/^qa_(\d+)$/', (string)$akrow->attemptkey, $akm)) {
+        $egqattemptid = (int)$akm[1];
+        $egqaattempt = $DB->get_record('quiz_attempts', ['id' => $egqattemptid], 'uniqueid');
+        if ($egqaattempt) {
             // Question texts — one row per slot (question_attempts joins question).
-            $eg_qt_rows = $DB->get_records_sql(
+            $egqtrows = $DB->get_records_sql(
                 "SELECT qa.id, qa.slot, q.questiontext
                    FROM {question_attempts} qa
                    JOIN {question} q ON q.id = qa.questionid
                   WHERE qa.questionusageid = :qubaid
                ORDER BY qa.slot ASC",
-                ['qubaid' => $eg_qa_attempt->uniqueid]
+                ['qubaid' => $egqaattempt->uniqueid]
             );
-            foreach ($eg_qt_rows as $eg_qtr) {
-                $eg_s = (int)$eg_qtr->slot;
-                if (!isset($eg_question_texts[$eg_s])) {
-                    $eg_qt = strip_tags(html_entity_decode((string)($eg_qtr->questiontext ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                    $eg_qt = trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', $eg_qt)));
-                    if ($eg_qt !== '') {
-                        $eg_question_texts[$eg_s] = $eg_qt;
+            foreach ($egqtrows as $egqtr) {
+                $egs = (int)$egqtr->slot;
+                if (!isset($egquestiontexts[$egs])) {
+                    $egqt = strip_tags(html_entity_decode((string)($egqtr->questiontext ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                    $egqt = trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', $egqt)));
+                    if ($egqt !== '') {
+                        $egquestiontexts[$egs] = $egqt;
                     }
                 }
             }
             // Student answers — most-recent step per slot (ORDER BY qas.id DESC).
-            $eg_ans_rows = $DB->get_records_sql(
+            $egansrows = $DB->get_records_sql(
                 "SELECT qas.id, qa.slot, qasd.value
                    FROM {question_attempt_steps} qas
                    JOIN {question_attempt_step_data} qasd ON qasd.attemptstepid = qas.id
                    JOIN {question_attempts} qa             ON qa.id = qas.questionattemptid
                   WHERE qa.questionusageid = :qubaid AND qasd.name = 'answer'
                ORDER BY qa.slot ASC, qas.id DESC",
-                ['qubaid' => $eg_qa_attempt->uniqueid]
+                ['qubaid' => $egqaattempt->uniqueid]
             );
-            foreach ($eg_ans_rows as $eg_ar) {
-                $eg_s = (int)$eg_ar->slot;
-                if (!isset($eg_answer_texts[$eg_s])) {
-                    $eg_at = strip_tags(html_entity_decode((string)($eg_ar->value ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                    $eg_at = trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', $eg_at)));
-                    if ($eg_at !== '') {
-                        $eg_answer_texts[$eg_s] = $eg_at;
+            foreach ($egansrows as $egar) {
+                $egs = (int)$egar->slot;
+                if (!isset($eganswertexts[$egs])) {
+                    $egat = strip_tags(html_entity_decode((string)($egar->value ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+                    $egat = trim(preg_replace('/\s+/', ' ', str_replace("\xc2\xa0", ' ', $egat)));
+                    if ($egat !== '') {
+                        $eganswertexts[$egs] = $egat;
                     }
                 }
             }
@@ -555,123 +840,181 @@ if (!empty($per_question)) {
     }
 }
 
-if (!empty($per_question)) {
-    echo html_writer::tag('h3', 'Per-Question Analysis',
-        ['style' => 'margin-top:2.5rem;margin-bottom:0.5rem;']);
-    echo '<p style="font-size:0.85rem;color:#6b7280;margin-bottom:1.25rem;">Individual scores per quiz essay question. Behavioural metrics reflect events tagged with each question\'s slot number during the live session. Expand each card for the full signal breakdown.</p>';
+if (!empty($perquestion)) {
+    echo html_writer::tag(
+        'h3',
+        get_string('perquestionheading', 'plagiarism_essayguard'),
+        ['style' => 'margin-top:2.5rem;margin-bottom:0.5rem;']
+    );
+    echo '<p style="font-size:0.85rem;color:#6b7280;margin-bottom:1.25rem;">Individual scores per quiz essay '
+        . 'question. Behavioural metrics reflect events tagged with each question\'s slot number during the live '
+        . 'session. Expand each card for the full signal breakdown.</p>';
 
-    foreach ($per_question as $slot => $qsc) {
+    foreach ($perquestion as $slot => $qsc) {
         $qmetrics   = json_decode($qsc->metricsjson ?? '{}', true) ?: [];
         $qbreakdown = isset($qmetrics['signal_breakdown']) ? $qmetrics['signal_breakdown'] : null;
         $qscore     = (int)round((float)($qsc->riskscore ?? 0) * 100);
         $qlevel     = \plagiarism_essayguard\local\service\analyser::risk_level($qscore);
-        $qc         = $risk_colours[$qlevel] ?? $risk_colours['low'];
+        $qc         = $riskcolours[$qlevel] ?? $riskcolours['low'];
 
-        $qbar_w     = min(100, $qscore);
-        $badge_style = 'display:inline-flex;align-items:center;gap:5px;padding:0.2rem 0.65rem;border-radius:4px;font-weight:700;font-size:0.82rem;background:' . $qc['bg'] . ';color:' . $qc['text'] . ';border:1px solid ' . $qc['text'] . '33;';
+        $qbarw     = min(100, $qscore);
+        $badgestyle = 'display:inline-flex;align-items:center;gap:5px;padding:0.2rem '
+            . '0.65rem;border-radius:4px;font-weight:700;font-size:0.82rem;background:' . $qc['bg']
+            . ';color:' . $qc['text'] . ';border:1px solid ' . $qc['text'] . '33;';
 
-        $card_id  = 'eg-q-card-' . $slot;
-        $body_id  = 'eg-q-body-' . $slot;
-        $qt_text  = $eg_question_texts[$slot] ?? '';
-        $ans_text = $eg_answer_texts[$slot] ?? '';
+        $cardid  = 'eg-q-card-' . $slot;
+        $bodyid  = 'eg-q-body-' . $slot;
+        $qttext  = $egquestiontexts[$slot] ?? '';
+        $anstext = $eganswertexts[$slot] ?? '';
 
-        // Section card header (always visible)
-        echo '<div id="' . $card_id . '" style="border:1px solid #e5e7eb;border-radius:8px;margin-bottom:1rem;overflow:hidden;">';
+        // Section card header (always visible).
+        echo '<div id="' . $cardid . '" style="border:1px solid #e5e7eb;border-radius:8px;margin-bottom:1rem;overflow:hidden;">';
 
-        // Clickable header row
-        echo '<div onclick="(function (b){b.style.display=b.style.display===\'none\'?\'block\':\'none\';})(document.getElementById(\'' . $body_id . '\'))" ';
-        echo 'style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.85rem 1rem;background:#f9fafb;cursor:pointer;border-bottom:1px solid #e5e7eb;">';
+        // Clickable header row.
+        echo '<div onclick="(function '
+            . '(b){b.style.display=b.style.display===\'none\'?\'block\':\'none\';})'
+            . '(document.getElementById(\'' . $bodyid . '\'))" ';
+        echo 'style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;padding:0.85rem '
+            . '1rem;background:#f9fafb;cursor:pointer;border-bottom:1px solid #e5e7eb;">';
 
-        echo '<span style="' . $badge_style . '">';
-        echo '<span style="width:7px;height:7px;border-radius:50%;background:' . $qc['bar'] . ';display:inline-block;flex-shrink:0;"></span>';
+        echo '<span style="' . $badgestyle . '">';
+        echo '<span style="width:7px;height:7px;border-radius:50%;background:' . $qc['bar']
+            . ';display:inline-block;flex-shrink:0;"></span>';
         echo strtoupper($qc['label']);
         echo '</span>';
 
-        echo '<strong style="font-size:0.95rem;">Question ' . (int)$slot . '</strong>';
+        echo '<strong style="font-size:0.95rem;">'
+            . get_string('questionlabel', 'plagiarism_essayguard', (int)$slot) . '</strong>';
 
         echo '<span style="margin-left:auto;display:flex;align-items:center;gap:1.5rem;font-size:0.83rem;color:#6b7280;">';
         echo '<span><strong style="color:' . $qc['text'] . ';">' . $qscore . '</strong>/100</span>';
-        echo '<span>Keystrokes: ' . (int)($qsc->total_keystrokes ?? 0) . '</span>';
-        echo '<span>Pastes: ' . (int)($qsc->paste_events ?? 0) . '</span>';
-        echo '<span>Avg WPM: ' . number_format((float)($qsc->average_wpm ?? 0), 1) . '</span>';
-        echo '<span>Typing: ' . round((int)($qsc->typing_time ?? 0) / 1000, 1) . ' s</span>';
-        echo '<span style="color:#9ca3af;">&#9660; signals</span>';
+        echo '<span>' . get_string(
+            'keystrokeslabel',
+            'plagiarism_essayguard',
+            (int)($qsc->total_keystrokes ?? 0)
+        ) . '</span>';
+        echo '<span>' . get_string(
+            'pasteslabel',
+            'plagiarism_essayguard',
+            (int)($qsc->paste_events ?? 0)
+        ) . '</span>';
+        echo '<span>' . get_string(
+            'avgwpmlabel',
+            'plagiarism_essayguard',
+            number_format((float)($qsc->average_wpm ?? 0), 1)
+        ) . '</span>';
+        echo '<span>' . get_string(
+            'typinglabel',
+            'plagiarism_essayguard',
+            round((int)($qsc->typing_time ?? 0) / 1000, 1)
+        ) . '</span>';
+        echo '<span style="color:#9ca3af;">&#9660; '
+            . get_string('signalsword', 'plagiarism_essayguard') . '</span>';
         echo '</span>';
 
-        echo '</div>'; // end clickable header
+        echo '</div>'; // End clickable header.
 
-        // ── Question text + Student answer (always visible) ─────────────────
-        if ($qt_text || $ans_text) {
-            echo '<div style="padding:0.85rem 1rem;border-bottom:1px solid #f3f4f6;display:flex;flex-direction:column;gap:0.65rem;">';
+        /* ── Question text + Student answer (always visible) ───────────────── */
+        if ($qttext || $anstext) {
+            echo '<div style="padding:0.85rem 1rem;border-bottom:1px solid '
+                . '#f3f4f6;display:flex;flex-direction:column;gap:0.65rem;">';
 
-            if ($qt_text) {
-                $qt_long  = mb_strlen($qt_text) > 400;
-                $qt_short = $qt_long ? mb_substr($qt_text, 0, 400) : $qt_text;
+            if ($qttext) {
+                $qtlong  = mb_strlen($qttext) > 400;
+                $qtshort = $qtlong ? mb_substr($qttext, 0, 400) : $qttext;
                 $qtsid    = 'eg-qt-' . $slot;
                 echo '<div>';
-                echo '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">Question</div>';
-                echo '<div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;padding:0.65rem 0.9rem;font-size:0.875rem;color:#1e293b;line-height:1.65;">';
-                echo '<span id="' . $qtsid . '-short">' . s($qt_short);
-                if ($qt_long) {
-                    echo '&hellip; <a href="#" onclick="document.getElementById(\'' . $qtsid . '-short\').style.display=\'none\';document.getElementById(\'' . $qtsid . '-full\').style.display=\'inline\';return false;" style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">more</a>';
+                echo '<div '
+                    . 'style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;'
+                    . 'letter-spacing:0.06em;margin-bottom:0.3rem;">'
+                    . get_string('questionheading', 'plagiarism_essayguard') . '</div>';
+                echo '<div style="background:#f0f4ff;border:1px solid #c7d2fe;border-radius:6px;padding:0.65rem '
+                    . '0.9rem;font-size:0.875rem;color:#1e293b;line-height:1.65;">';
+                echo '<span id="' . $qtsid . '-short">' . s($qtshort);
+                if ($qtlong) {
+                    echo '&hellip; <a href="#" onclick="document.getElementById(\'' . $qtsid
+                        . '-short\').style.display=\'none\';document.getElementById(\'' . $qtsid
+                        . '-full\').style.display=\'inline\';return false;" '
+                        . 'style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">'
+                        . get_string('moreword', 'plagiarism_essayguard') . '</a>';
                 }
                 echo '</span>';
-                if ($qt_long) {
-                    echo '<span id="' . $qtsid . '-full" style="display:none;">' . s($qt_text) . ' <a href="#" onclick="document.getElementById(\'' . $qtsid . '-full\').style.display=\'none\';document.getElementById(\'' . $qtsid . '-short\').style.display=\'inline\';return false;" style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">less</a></span>';
+                if ($qtlong) {
+                    echo '<span id="' . $qtsid . '-full" style="display:none;">' . s($qttext)
+                        . ' <a href="#" onclick="document.getElementById(\'' . $qtsid
+                        . '-full\').style.display=\'none\';document.getElementById(\'' . $qtsid
+                        . '-short\').style.display=\'inline\';return false;" '
+                        . 'style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">'
+                        . get_string('lessword', 'plagiarism_essayguard') . '</a></span>';
                 }
                 echo '</div>';
                 echo '</div>';
             }
 
-            if ($ans_text) {
-                $ans_long  = mb_strlen($ans_text) > 600;
-                $ans_short = $ans_long ? mb_substr($ans_text, 0, 600) : $ans_text;
+            if ($anstext) {
+                $anslong  = mb_strlen($anstext) > 600;
+                $ansshort = $anslong ? mb_substr($anstext, 0, 600) : $anstext;
                 $anssid    = 'eg-ans-' . $slot;
                 echo '<div>';
-                echo '<div style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem;">Student\'s Answer</div>';
-                echo '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:0.65rem 0.9rem;font-size:0.875rem;color:#374151;line-height:1.65;">';
-                echo '<span id="' . $anssid . '-short">' . s($ans_short);
-                if ($ans_long) {
-                    echo '&hellip; <a href="#" onclick="document.getElementById(\'' . $anssid . '-short\').style.display=\'none\';document.getElementById(\'' . $anssid . '-full\').style.display=\'inline\';return false;" style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">show more</a>';
+                echo '<div '
+                    . 'style="font-size:0.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;'
+                    . 'letter-spacing:0.06em;margin-bottom:0.3rem;">'
+                    . get_string('studentanswer', 'plagiarism_essayguard') . '</div>';
+                echo '<div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:0.65rem '
+                    . '0.9rem;font-size:0.875rem;color:#374151;line-height:1.65;">';
+                echo '<span id="' . $anssid . '-short">' . s($ansshort);
+                if ($anslong) {
+                    echo '&hellip; <a href="#" onclick="document.getElementById(\'' . $anssid
+                        . '-short\').style.display=\'none\';document.getElementById(\'' . $anssid
+                        . '-full\').style.display=\'inline\';return false;" '
+                        . 'style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">'
+                        . get_string('showmore', 'plagiarism_essayguard') . '</a>';
                 }
                 echo '</span>';
-                if ($ans_long) {
-                    echo '<span id="' . $anssid . '-full" style="display:none;">' . s($ans_text) . ' <a href="#" onclick="document.getElementById(\'' . $anssid . '-full\').style.display=\'none\';document.getElementById(\'' . $anssid . '-short\').style.display=\'inline\';return false;" style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">show less</a></span>';
+                if ($anslong) {
+                    echo '<span id="' . $anssid . '-full" style="display:none;">' . s($anstext)
+                        . ' <a href="#" onclick="document.getElementById(\'' . $anssid
+                        . '-full\').style.display=\'none\';document.getElementById(\'' . $anssid
+                        . '-short\').style.display=\'inline\';return false;" '
+                        . 'style="font-size:0.8rem;color:#6366f1;white-space:nowrap;">'
+                        . get_string('showless', 'plagiarism_essayguard') . '</a></span>';
                 }
                 echo '</div>';
                 echo '</div>';
             }
 
-            echo '</div>'; // end question/answer panel
+            echo '</div>'; // End question/answer panel.
         }
 
-        // Expandable signal breakdown body (hidden by default)
-        echo '<div id="' . $body_id . '" style="display:none;padding:1rem;">';
+        // Expandable signal breakdown body (hidden by default).
+        echo '<div id="' . $bodyid . '" style="display:none;padding:1rem;">';
 
-        // Visual bar for question score
+        // Visual bar for question score.
         echo '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">';
         echo '<div style="flex:1;max-width:300px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;">';
-        echo '<div style="width:' . $qbar_w . '%;height:100%;background:' . $qc['bar'] . ';border-radius:4px;"></div>';
+        echo '<div style="width:' . $qbarw . '%;height:100%;background:' . $qc['bar'] . ';border-radius:4px;"></div>';
         echo '</div>';
-        echo '<span style="font-size:0.82rem;color:#6b7280;">' . $qscore . '/100 &mdash; ' . $qc['label'] . ' Risk</span>';
+        echo '<span style="font-size:0.82rem;color:#6b7280;">' . $qscore . '/100 &mdash; '
+            . get_string('riskscorelabel', 'plagiarism_essayguard', $qc['label']) . '</span>';
         echo '</div>';
 
-        essayguard_render_signal_table($qbreakdown, $qsc, $qmetrics, $signal_info, $risk_colours, $qscore);
+        plagiarism_essayguard_render_signal_table($qbreakdown, $qsc, $qmetrics, $signalinfo, $riskcolours, $qscore);
 
-        echo '</div>'; // end expandable body
-        echo '</div>'; // end card
+        echo '</div>'; // End expandable body.
+        echo '</div>'; // End card.
     }
 }
 
-// ── Interpretation guide ──────────────────────────────────────────────────────
+/* ── Interpretation guide ────────────────────────────────────────────────────── */
 
-echo '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:1rem 1.25rem;margin-top:2.5rem;font-size:0.83rem;">';
-echo '<strong>Interpretation Guide</strong><br>';
+echo '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:1rem '
+    . '1.25rem;margin-top:2.5rem;font-size:0.83rem;">';
+echo '<strong>' . get_string('interpretationguide', 'plagiarism_essayguard') . '</strong><br>';
 echo '<ul style="margin:0.5rem 0 0;padding-left:1.25rem;color:#555;">';
-echo '<li><strong style="color:#166534;">LOW (0–29):</strong> Writing behaviour appears consistent with authentic student patterns. No significant concern detected.</li>';
-echo '<li><strong style="color:#c2410c;">MEDIUM (30–64):</strong> Some signals triggered. Human review is recommended — contextual factors may explain the result.</li>';
-echo '<li><strong style="color:#991b1b;">HIGH (65–100):</strong> Multiple strong indicators detected. A detailed review is strongly recommended before drawing conclusions.</li>';
-echo '<li>Essay Guard uses behavioural and linguistic heuristics — it does not make definitive academic misconduct determinations. Always apply professional judgement.</li>';
+echo '<li>' . get_string('interpretlow', 'plagiarism_essayguard') . '</li>';
+echo '<li>' . get_string('interpretmedium', 'plagiarism_essayguard') . '</li>';
+echo '<li>' . get_string('interprethigh', 'plagiarism_essayguard') . '</li>';
+echo '<li>' . get_string('interpretnote', 'plagiarism_essayguard') . '</li>';
 echo '</ul>';
 echo '</div>';
 

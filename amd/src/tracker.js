@@ -1,3 +1,18 @@
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
 /**
  * Essay Guard  -  keystroke/paste/behaviour telemetry tracker.
  *
@@ -5,7 +20,7 @@
  * Requires Moodle AMD / RequireJS  -  file MUST be wrapped in define().
  *
  * @module     plagiarism_essayguard/tracker
- * @copyright  2025 Essay Grader AI
+ * @copyright  2025 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 define(['core/ajax'], function(Ajax) {
@@ -25,6 +40,13 @@ define(['core/ajax'], function(Ajax) {
         pauseThreshold: 2000,
         flushing: false,      // FIX-EG-FLUSH-LOSS: guards against concurrent flushes
         flushPromise: null,   // FIX-EG-FLUSH-LOSS: shared promise for in-flight flush
+        // v1.2.219: init() re-entry guard + timer handles so the three setInterval
+        // timers can actually be stopped. See init().
+        initialised: false,
+        timers: [],
+        flushFailures: 0,
+        queueDropped: 0,
+        nextSeq: 1,
         // FIX-EG-TINYMCE-FINALIZE (v1.2.90): Registry of bound TinyMCE iframes.
         // The submit-time querySelectorAll('[data-essayguard-bound="1"]') runs on the
         // outer document and cannot see elements inside iframe contentDocuments.
@@ -41,13 +63,62 @@ define(['core/ajax'], function(Ajax) {
         return Date.now();
     };
 
+    // v1.2.219: Hard ceilings on the client queue.
+    //
+    // MAX_QUEUE: the queue was unbounded. Every failed flush rolled its batch back into
+    // the queue and the next flush retried the whole thing, so a student who lost
+    // connectivity for ten minutes of an exam accumulated tens of thousands of events in
+    // memory — and then the beforeunload sendBeacon() silently refused the payload (the
+    // Beacon spec caps the body at roughly 64KB), losing every one of them. Bounded now:
+    // past the ceiling the OLDEST events are dropped, because the recent ones are the
+    // ones nearest the submission and the ones the scoring signals care about.
+    //
+    // MAX_BATCH: matches log_event::MAX_EVENTS on the server. A flush larger than this is
+    // now split into chunks rather than being rejected wholesale.
+    var MAX_QUEUE = 5000;
+    var MAX_BATCH = 500;
+
+    // v1.2.219: The flush .catch used to be an empty block — a failing flush was
+    // completely invisible, in the browser and in support. Failures are now reported to
+    // the console (once every 10 failures after the first, so a long offline stretch does
+    // not spam it) and counted on state so the count is inspectable.
+    var reportFlushFailure = function(err) {
+        state.flushFailures++;
+        if (state.flushFailures === 1 || state.flushFailures % 10 === 0) {
+            if (typeof window !== 'undefined' && window.console && window.console.warn) {
+                window.console.warn(
+                    '[Essay Guard] telemetry flush failed (' + state.flushFailures +
+                    ' failure(s), ' + state.queue.length + ' event(s) queued):',
+                    err
+                );
+            }
+        }
+    };
+
     var enqueue = function(eventname, payload) {
         payload = payload || {};
         state.queue.push({
+            // v1.2.220: monotonic sequence number. The flush commit used to splice by
+            // INDEX, which assumed nothing else could touch the front of the queue - an
+            // assumption the v1.2.219 drop-oldest broke. Identity lets the commit remove
+            // exactly what was sent.
+            seq: (state.nextSeq++),
             eventname: eventname,
             eventtime: nowMs(),
             payloadjson: JSON.stringify(payload),
         });
+        // v1.2.219: Bound the queue. Drop from the front (oldest first).
+        if (state.queue.length > MAX_QUEUE) {
+            var overflow = state.queue.length - MAX_QUEUE;
+            state.queue.splice(0, overflow);
+            state.queueDropped += overflow;
+            if (typeof window !== 'undefined' && window.console && window.console.warn) {
+                window.console.warn(
+                    '[Essay Guard] telemetry queue full — dropped ' + state.queueDropped +
+                    ' oldest event(s). The server may be unreachable.'
+                );
+            }
+        }
     };
 
     var flush = function() {
@@ -62,27 +133,49 @@ define(['core/ajax'], function(Ajax) {
         }
         state.flushing = true;
 
-        var batchLen = state.queue.length;
+        // v1.2.219: Chunk the flush. Previously the whole queue went in one call, which
+        // the server (log_event::MAX_EVENTS) now rejects outright above 500 events —
+        // a backlog would have wedged permanently, retrying a payload that could never
+        // be accepted. Each flush sends at most MAX_BATCH; the timer picks up the rest.
+        var batchLen = Math.min(state.queue.length, MAX_BATCH);
         var batch = state.queue.slice(0, batchLen); // snapshot without removing
 
-        // DIAG-EG-FLUSH (v1.2.145): Log flush so console confirms events are being sent.
-        // eslint-disable-next-line no-console
-        console.log('[EssayGuard DIAG] flush(): sending ' + batchLen + ' event(s) to server.',
-            batch.map(function(e) { return e.eventname; }));
+        // v1.2.220: `seq` is a CLIENT-ONLY field used to commit by identity. It is not in
+        // log_event::execute_parameters(), and Moodle's external API rejects a structure
+        // carrying an undeclared key - sending it would fail every single flush. Strip it
+        // for the wire, keep it on the queued copies.
+        var wire = batch.map(function(e) {
+            return {
+                eventname:   e.eventname,
+                eventtime:   e.eventtime,
+                payloadjson: e.payloadjson,
+            };
+        });
 
         state.flushPromise = Ajax.call([{
             methodname: 'plagiarism_essayguard_log_event',
             args: {
                 cmid: state.cmid,
                 attemptkey: state.attemptkey,
-                events: batch,
+                events: wire,
             }
         }])[0].then(function(result) {
-            // Commit: only remove the sent events once the server confirms receipt.
-            state.queue.splice(0, batchLen);
+            // Commit by IDENTITY, not by index.
+            //
+            // v1.2.220: this was `state.queue.splice(0, batchLen)`, which assumed index 0
+            // was still the first event sent. While a flush is in flight, enqueue() can now
+            // drop events off the FRONT when the queue hits MAX_QUEUE - so a 500-event
+            // batch that had 100 dropped underneath it committed 500 slots and destroyed
+            // 100 events that were never transmitted. Silent telemetry loss, at exactly the
+            // moment the server is unreachable and the data matters most.
+            var sentSeq = {};
+            for (var i = 0; i < batch.length; i++) { sentSeq[batch[i].seq] = true; }
+            state.queue = state.queue.filter(function(e) { return !sentSeq[e.seq]; });
+            state.flushFailures = 0;
             return result;
         }).catch(function(err) {
             // Rollback: events remain in the queue; next flush interval will retry.
+            reportFlushFailure(err);
         }).finally(function() {
             state.flushing = false;
             state.flushPromise = null;
@@ -207,10 +300,6 @@ define(['core/ajax'], function(Ajax) {
         }
         field.dataset.essayguardBound = '1';
         // DIAG-EG-BIND (v1.2.145): Confirm which field is being monitored.
-        // eslint-disable-next-line no-console
-        console.log('[EssayGuard DIAG] bindField(): monitoring field',
-            {id: field.id, name: field.name || field.dataset.essayguardName || '(no name)',
-             tag: field.tagName, qslot: field.dataset.essayguardQslot || '0'});
         // FIX-EG-PREVLEN-CONTENTEDITABLE (v1.2.87): use field.value != null so
         // contenteditable elements fall through to textContent for initial length.
         state.lastLengths.set(field,
@@ -462,10 +551,6 @@ define(['core/ajax'], function(Ajax) {
             || que.classList.contains('shortanswer');
         if (!result) {
             // DIAG-EG-QTYPE (v1.2.145): Log the rejection so devs can see why a field was skipped.
-            // eslint-disable-next-line no-console
-            console.warn('[EssayGuard DIAG] isTypedAnswerField(): SKIPPING field — .que found but'
-                + ' qtype_essay/qtype_shortanswer class missing. Actual classes: ['
-                + Array.from(que.classList).join(', ') + '] que.id=' + que.id);
         }
         return result;
     };
@@ -500,9 +585,6 @@ define(['core/ajax'], function(Ajax) {
             return; // Invalid node.
         }
         // DIAG-EG-TMCE-ENTRY (v1.2.145): Log every attempt to bind a TinyMCE iframe.
-        // eslint-disable-next-line no-console
-        console.log('[EssayGuard DIAG] bindTinyMCENode(): called for iframe id=' + (node.id || '(no id)')
-            + ' _egTmBound=' + (node._egTmBound || false));
         // FIX-EG-TINYMCE-REBIND (v1.2.121): Check the CURRENT contentDocument's _egDocBound
         // flag instead of relying solely on node._egTmBound. TinyMCE can reinitialize its
         // editor by keeping the same <iframe> DOM node but replacing its contentDocument
@@ -532,9 +614,6 @@ define(['core/ajax'], function(Ajax) {
             var doc  = node.contentDocument;
             var body = doc && doc.body;
             // DIAG-EG-TMCE-BODY (v1.2.145): Show whether the iframe body is accessible.
-            // eslint-disable-next-line no-console
-            console.log('[EssayGuard DIAG] bindTinyMCENode(): contentDocument=' + (doc ? 'present' : 'NULL')
-                + ' body=' + (body ? 'present' : 'NULL') + ' readyState=' + (doc ? doc.readyState : 'N/A'));
             if (body) {
                 // v1.2.32: Resolve the quiz question slot from the TinyMCE iframe id.
                 if (!body.dataset.essayguardName) {
@@ -593,10 +672,6 @@ define(['core/ajax'], function(Ajax) {
                     return;
                 }
                 // DIAG-EG-TMCE-BOUND (v1.2.145): Confirm successful TinyMCE iframe bind.
-                // eslint-disable-next-line no-console
-                console.log('[EssayGuard DIAG] bindTinyMCENode(): SUCCESS binding iframe id='
-                    + (node.id || '(no id)') + ' qslot=' + (body.dataset.essayguardQslot || '0')
-                    + ' essayguardName=' + (body.dataset.essayguardName || '(none)'));
                 bindField(body);
                 // Mark as bound AFTER bindField so repeated scan() / MutationObserver
                 // calls don't re-bind the body or re-add doc-level listeners.
@@ -729,9 +804,6 @@ define(['core/ajax'], function(Ajax) {
         var nTextareas = document.querySelectorAll('textarea').length;
         var nAtto     = document.querySelectorAll('[contenteditable="true"], .editor_atto_content').length;
         var nToxIframes = document.querySelectorAll('.tox-edit-area iframe, .tox-tinymce iframe').length;
-        // eslint-disable-next-line no-console
-        console.log('[EssayGuard DIAG] scan(): textareas=' + nTextareas
-            + ' contenteditable/atto=' + nAtto + ' tox-iframes=' + nToxIframes);
 
         var selectors = [
             'textarea',
@@ -991,6 +1063,13 @@ define(['core/ajax'], function(Ajax) {
      * @param {{risklevel: string, score100: number}} data
      */
     var injectRiskBadge = function(data, fieldOverride) {
+        // v1.2.219: This is now the student-facing degradation path, and it is load-bearing.
+        // finalize_attempt and log_event return risklevel ONLY to a caller holding
+        // plagiarism/essayguard:viewreport; a student gets risklevel: ''. An empty
+        // risklevel therefore means "you are not entitled to see this", and the correct
+        // behaviour is to render nothing at all — no badge, no toast, no sessionStorage
+        // entry — rather than to fall back to a default LOW badge, which would both be a
+        // lie and re-open the live-score oracle this change exists to close.
         if (!data || !data.risklevel) {
             return;
         }
@@ -1235,9 +1314,50 @@ define(['core/ajax'], function(Ajax) {
      * Collect the current text from all monitored fields.
      * @returns {string}
      */
+    /**
+     * v1.2.221: is this bound field the hidden backing textarea of a rich editor we have
+     * ALSO bound as an iframe?
+     *
+     * scan() binds every <textarea>, including the hidden one Atto and TinyMCE keep in sync
+     * with the visible editor. collectFieldText() and the submit handler then unioned those
+     * textareas with state.boundFrames, so every rich-editor answer was submitted TWICE.
+     *
+     * That is not cosmetic. linguistic.php computes vocab_diversity as unique/total words,
+     * so doubling the text roughly halves it - a real 300-word essay drops from ~0.5 to
+     * ~0.25, straight into the band the analyser scores +15 for. Honest students were being
+     * pushed toward MEDIUM by a duplication bug. It also fired two finalizeAttempt calls for
+     * one answer and, when qslot detection failed, made the positional fallback invent a
+     * second question out of the same editor's content.
+     *
+     * @param {Element} field A bound field in the outer document.
+     * @returns {boolean} true when its content is already collected from an editor iframe.
+     */
+    var isEditorBackingField = function(field) {
+        if (!field || field.tagName !== 'TEXTAREA') {
+            return false;
+        }
+        // A textarea the browser is not showing is a backing store, not what the student
+        // typed into. Covers Atto (contenteditable + hidden textarea) as well as TinyMCE.
+        if (field.offsetParent === null && field.type !== 'hidden') {
+            return true;
+        }
+        // Explicit match against the editors we bound: TinyMCE names its iframe
+        // "<textareaid>_ifr".
+        for (var i = 0; i < state.boundFrames.length; i++) {
+            var outer = state.boundFrames[i].outerNode;
+            if (outer && outer.id && field.id && outer.id === field.id + '_ifr') {
+                return true;
+            }
+        }
+        return false;
+    };
+
     var collectFieldText = function() {
         var parts = [];
         document.querySelectorAll('[data-essayguard-bound="1"]').forEach(function(field) {
+            if (isEditorBackingField(field)) {
+                return; // v1.2.221: already collected from its editor iframe below.
+            }
             var text = (field.value || field.textContent || '').trim();
             if (text.length > 0) {
                 parts.push(text);
@@ -1329,6 +1449,12 @@ define(['core/ajax'], function(Ajax) {
                     // Text snapshots captured now (sync, before any async work):
                     var fieldSnapshots = [];
                     document.querySelectorAll('[data-essayguard-bound="1"]').forEach(function(field) {
+                        // v1.2.221: skip a rich editor's hidden backing textarea - its
+                        // content is collected from the editor iframe below. Submitting both
+                        // halved vocab_diversity and pushed honest students toward MEDIUM.
+                        if (isEditorBackingField(field)) {
+                            return;
+                        }
                         var fieldText = (field.value || field.textContent || '').trim();
                         if (!fieldText) {
                             return;
@@ -1457,14 +1583,23 @@ define(['core/ajax'], function(Ajax) {
      * @param {Object} config  {cmid, attemptkey, flushinterval, maxburstchars}
      */
     var init = function(config) {
+        // v1.2.219: RE-ENTRY GUARD.
+        // init() created three setInterval timers and registered a beforeunload handler,
+        // none of which were ever tracked or cleared. A second init() call — which Moodle
+        // does whenever js_call_amd runs twice on a page (a fragment reload, a second
+        // tracked field being initialised, an AJAX-loaded quiz page) — created three MORE
+        // timers, re-bound every field, and made every keystroke enqueue TWICE. Doubled
+        // keystroke counts feed straight into the WPM and keystroke-ratio signals, so a
+        // double init actively corrupted the score. Now the second call is a no-op.
+        if (state.initialised) {
+            return;
+        }
+        state.initialised = true;
+
         state = Object.assign(state, config);
         state.sessionStart = Date.now();
 
         // DIAG-EG-INIT (v1.2.145): First thing logged — confirms AMD module loaded and init() was called.
-        // eslint-disable-next-line no-console
-        console.log('[EssayGuard DIAG] init(): tracker loaded. cmid=' + state.cmid
-            + ' attemptkey=' + (state.attemptkey ? state.attemptkey.substring(0, 8) + '…' : '(empty)')
-            + ' flushinterval=' + state.flushinterval + 'ms');
 
         // BUG-BADGE-NAV fix: restore any badge saved before the previous form
         // navigation so the student sees their risk result on this (next) page.
@@ -1496,21 +1631,13 @@ define(['core/ajax'], function(Ajax) {
                     && !state.tinymceApiHooked) {
                 state.tinymceApiHooked = true;
                 // DIAG-EG-TMCE-API (v1.2.145): Confirm TinyMCE global API was found and hooked.
-                // eslint-disable-next-line no-console
-                console.log('[EssayGuard DIAG] hookTinyMCEApi(): window.tinymce found — hooking AddEditor event.'
-                    + ' editors already loaded: ' + ((window.tinymce.editors && window.tinymce.editors.length) || 0));
                 window.tinymce.on('AddEditor', function(addEvent) {
                     if (addEvent && addEvent.editor) {
                         // DIAG-EG-ADDEDITOR (v1.2.145): Log each editor that TinyMCE reports.
-                        // eslint-disable-next-line no-console
-                        console.log('[EssayGuard DIAG] AddEditor event: editor.id=' + addEvent.editor.id);
                         addEvent.editor.on('init', function() {
                             var editorId = addEvent.editor.id;
                             var editorIframe = document.getElementById(editorId + '_ifr');
                             // DIAG-EG-EDITOR-INIT (v1.2.145): Log editor init and whether iframe was found.
-                            // eslint-disable-next-line no-console
-                            console.log('[EssayGuard DIAG] editor.init: editorId=' + editorId
-                                + ' iframe=' + (editorIframe ? 'FOUND' : 'NOT FOUND (id=' + editorId + '_ifr)'));
                             if (editorIframe) {
                                 bindTinyMCENode(editorIframe);
                             }
@@ -1534,12 +1661,29 @@ define(['core/ajax'], function(Ajax) {
         setTimeout(hookTinyMCEApi, 1000);
         setTimeout(hookTinyMCEApi, 3000);
 
-        setInterval(scan, 2000);
-        setInterval(interceptSubmitForms, 3000);
+        // v1.2.219: Keep every timer handle so they can be cleared. Previously all three
+        // were fire-and-forget setInterval() calls that ran for the lifetime of the
+        // document — including after the student had submitted and moved on, and
+        // including any duplicate set created by a second init().
+        state.timers.push(setInterval(scan, 2000));
+        state.timers.push(setInterval(interceptSubmitForms, 3000));
 
         state.timer = setInterval(function() {
             flush();
         }, state.flushinterval);
+        state.timers.push(state.timer);
+
+        // v1.2.219: Stop the timers when the page goes away. Without this, a bfcache
+        // restore or a long-lived SPA-style page kept polling the DOM every 2 seconds
+        // forever.
+        var stopTimers = function() {
+            state.timers.forEach(function(id) {
+                clearInterval(id);
+            });
+            state.timers = [];
+            state.timer = null;
+        };
+        window.addEventListener('pagehide', stopTimers);
 
         window.addEventListener('beforeunload', function() {
             if (!state.queue.length) {
@@ -1571,12 +1715,27 @@ define(['core/ajax'], function(Ajax) {
             // Events may still be lost in that case, but it is no worse than before.
             if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function' &&
                     typeof M !== 'undefined' && M.cfg && M.cfg.sesskey && M.cfg.wwwroot) {
+                // v1.2.219: Send at most MAX_BATCH events, and only the most recent ones.
+                // sendBeacon() silently returns false once the body exceeds the UA's limit
+                // (~64KB), which previously meant a large backlog lost EVERYTHING rather
+                // than the tail. Sending the newest slice guarantees the payload stays
+                // small enough to be accepted, and the newest events are the ones the
+                // scoring signals actually need.
+                // v1.2.220: strip the client-only `seq` here too - the beacon posts to the
+                // same web service, which rejects an undeclared key.
+                var beaconEvents = state.queue.slice(-MAX_BATCH).map(function(e) {
+                    return {
+                        eventname:   e.eventname,
+                        eventtime:   e.eventtime,
+                        payloadjson: e.payloadjson,
+                    };
+                });
                 var payload = JSON.stringify([{
                     methodname: 'plagiarism_essayguard_log_event',
                     args: {
                         cmid:       state.cmid,
                         attemptkey: state.attemptkey,
-                        events:     state.queue.slice(),
+                        events:     beaconEvents,
                     },
                 }]);
                 var beaconUrl = M.cfg.wwwroot + '/lib/ajax/service.php?sesskey=' + M.cfg.sesskey;
@@ -1592,7 +1751,19 @@ define(['core/ajax'], function(Ajax) {
         });
     };
 
+    // v1.2.219: Exposed for completeness so a host page can stop the tracker
+    // deterministically rather than relying on navigation.
+    var destroy = function() {
+        state.timers.forEach(function(id) {
+            clearInterval(id);
+        });
+        state.timers = [];
+        state.timer = null;
+        state.initialised = false;
+    };
+
     return {
         init: init,
+        destroy: destroy,
     };
 });

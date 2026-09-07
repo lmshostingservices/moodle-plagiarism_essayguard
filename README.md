@@ -10,7 +10,7 @@
 
 # Essay Guard — Privacy-First Writing Authenticity Engine
 
-**Version:** 1.1.0  
+**Version:** 1.2.219  
 **Moodle Compatibility:** Moodle 4.0 – 5.1  
 **Plugin Type:** Plagiarism Plugin (`plagiarism_essayguard`)
 
@@ -24,7 +24,9 @@ Essay Guard analyses **how students write**, not just what they submit. It captu
 - AI-generated text pasted or manually retyped
 - Unusual writing patterns vs the student's own baseline
 
-**All processing is local to Moodle. No text leaves the server. No external AI services are used.**
+**Student work is analysed entirely inside Moodle.** No submitted text, no keystroke telemetry and no student identity is ever sent outside your server, and no external AI service is involved in scoring.
+
+Essay Guard does make three outbound HTTPS calls to `lms-labs.com` — licence verification, one-time unlock, and site-wide plugin settings. Those calls carry **only this site's own Site ID and API key**. They carry no student data of any kind. They are declared in the plugin's Moodle privacy metadata under "LMS Labs licence server".
 
 ---
 
@@ -72,9 +74,9 @@ Instructor sees riskbadge on submission + full report
 
 | Score | Level | Recommended Action |
 |-------|-------|-------------------|
-| 0–34 | Low | No action needed |
-| 35–69 | Medium | Instructor review recommended |
-| 70–100 | High | Follow-up suggested (viva, supervised rewrite) |
+| 0–29 | Low | No action needed |
+| 30–65 | Medium | Instructor review recommended |
+| 66–100 | High | Follow-up suggested (viva, supervised rewrite) |
 
 ---
 
@@ -99,7 +101,7 @@ Rolling average of the student's writing behaviour across submissions.
 ## Web Services
 
 ### `plagiarism_essayguard_log_event`
-Called every 5 seconds by the browser tracker. Saves raw events and runs incremental scoring.
+Called every 5 seconds by the browser tracker. Saves raw events (max 500 per call, 2KB per payload) and re-scores at most once per 60 seconds per attempt. Returns the risk score only to callers holding `plagiarism/essayguard:viewreport`.
 
 ### `plagiarism_essayguard_finalize_attempt`
 Called at submission. Runs full linguistic analysis on final text, performs complete behavioural scoring, updates student fingerprint.
@@ -109,7 +111,7 @@ Called at submission. Runs full linguistic analysis on final text, performs comp
 - `attemptkey` — Session key from tracker init
 - `finaltext` — The essay text at submission time
 
-**Returns:** Full authenticity report including `score100`, `risklevel`, `explanations[]`, `baseline_status`, `baseline_deviation`
+**Returns:** Full authenticity report including `score100`, `risklevel`, `explanations[]`, `baseline_status`, `baseline_deviation` — **only to a caller holding `plagiarism/essayguard:viewreport` in the activity context.** Students receive an acknowledgement with no score, no metrics and no explanations: the analysis must not be readable by the person being analysed, or it becomes something to iterate against.
 
 ---
 
@@ -146,16 +148,18 @@ Settings page: **Site Administration → Plugins → Plagiarism prevention → E
 
 ## Privacy
 
-Essay Guard is fully GDPR-compliant:
-- All data stored in Moodle's own database
-- No student text sent outside Moodle
-- No external APIs or AI services
-- Data automatically pruned after retention period
-- Full Moodle Privacy API implementation in `classes/privacy/provider.php`
+- Student work, keystroke telemetry and all derived scores are stored in your own Moodle database and nowhere else.
+- No student text, telemetry or identity is sent outside Moodle. No external AI service is used for scoring.
+- The plugin does contact `lms-labs.com` for licence verification and site-wide settings. Those requests contain this site's Site ID and API key only — never student data. This is declared in the plugin's privacy metadata.
+- Students are shown a disclosure above the submission form explaining what is captured, why, who can see it and how long it is kept.
+- Raw keystroke telemetry is automatically pruned after the configured retention period (default 90 days). Summary risk scores are retained with the submission.
+- Full Moodle Privacy API implementation in `classes/privacy/provider.php`, covering export, erasure, user lists and user preferences across all three tables.
 
 ## Pricing
 
-**$50 USD** — one-time purchase per site · lifetime updates · no subscription.
+**$50 USD (5,000 LMS Labs credits)** — one-time purchase per site · lifetime updates · no subscription.
+
+Essay Guard is unlocked from your LMS Labs credit balance: activating it on a site deducts 5,000 credits once, which is the credit equivalent of the $50 price. The settings page and the unlock dialog both quote the credit figure; they refer to the same one-time charge.
 
 Download at [lms-labs.com/plugins](https://lms-labs.com/plugins).
 
@@ -165,7 +169,7 @@ Download at [lms-labs.com/plugins](https://lms-labs.com/plugins).
 **Behavioural consistency analysis — not similarity matching**
 
 - Turnitin, Grammarly, and every similarity checker measure how much a submission resembles known text in a database. Essay Guard measures something different: whether this submission is consistent with how this student has written before. A student can pass even if their work resembles published text; they fail only if their own writing style is internally inconsistent.
-- Zero data leaves Moodle. No third-party database, no external API call, no submission upload. All analysis runs against the student's own previous submissions stored in the Moodle database.
+- No student data leaves Moodle. No third-party similarity database, no submission upload, no text sent to an AI service. All analysis runs against the student's own previous submissions stored in the Moodle database. (The plugin does call `lms-labs.com` to verify this site's licence; that call carries the site's credentials only.)
 - Signals include vocabulary diversity (type-token ratio), sentence length distribution, paragraph structure, and transition density — all compared against the student's own historical baseline, not a population average.
 
 ## Support

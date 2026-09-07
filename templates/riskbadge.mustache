@@ -1,6 +1,37 @@
 {{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/riskbadge
+
     Risk badge rendered inline on student submissions (plagiarism API get_links).
+
     v1.2.54: Pill with coloured dot indicator matching the Essay Guard docs demo.
-    Context vars: risklevel, risklevelcap, riskscorepercent, label
+
+    Context variables required for this template:
+    * risklevel string Lower-case risk band, one of "low", "medium" or "high";
+      used as the CSS modifier suffix on the badge element.
+    * risklevelcap string The same risk band capitalised for display, e.g. "Medium".
+    * riskscorepercent int Risk score as a whole-number percentage, 0 to 100.
+
+    Example context (json):
+    {
+        "risklevel": "medium",
+        "risklevelcap": "Medium",
+        "riskscorepercent": 47
+    }
 }}
 <span class="essayguard-risk essayguard-risk-{{risklevel}}">{{risklevelcap}} · {{riskscorepercent}}%</span>

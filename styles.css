@@ -1,3 +1,27 @@
+/* This file is part of Moodle - http://moodle.org/
+ *
+ * Moodle is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Moodle is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Stylesheet for the plagiarism_essayguard plugin.
+ *
+ * @package    plagiarism_essayguard
+ * @copyright  2026 LMS-Labs
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 /* ── Essay Guard — Plugin Styles ─────────────────────────────────────────────
  * v1.2.54: Visual layout updated to match the "Teacher grading view" documented
  * in the Essay Guard docs demo. 3-tier risk levels: low / medium / high.
@@ -565,3 +589,27 @@
     text-decoration: underline;
 }
 .eg-debug-link:hover { color: #6b7280; }
+
+/* v1.2.227 FIX-EG-NOTHING-MEASURED-READS-LOW
+   "Not measured" is the absence of a finding, not a finding. It must not look
+   reassuring (green reads as "clean") and must not look alarming (red reads as "this
+   student did something"). Slate, with a hollow dot, reads as "no reading taken". */
+.essayguard-badge-unmeasured {
+    background: hsl(215deg 20% 94%);
+    color: hsl(215deg 25% 32%);
+    border: 1px solid hsl(215deg 18% 82%);
+}
+.essayguard-badge-dot-unmeasured {
+    background: transparent;
+    border: 2px solid hsl(215deg 20% 55%);
+}
+[data-bs-theme="dark"] .essayguard-badge-unmeasured,
+body.dark .essayguard-badge-unmeasured {
+    background: hsl(215deg 18% 22%);
+    color: hsl(215deg 20% 82%);
+    border-color: hsl(215deg 15% 38%);
+}
+[data-bs-theme="dark"] .essayguard-badge-dot-unmeasured,
+body.dark .essayguard-badge-dot-unmeasured {
+    border-color: hsl(215deg 25% 65%);
+}

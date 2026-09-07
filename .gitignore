@@ -1,0 +1,13 @@
+# moodle-plugin-ci and local tooling
+/moodle/
+/ci/
+/vendor/
+/node_modules/
+composer.lock
+package-lock.json
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store

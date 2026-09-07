@@ -125,18 +125,31 @@ jobs:
       # moodle-plugin-ci backs the plugin up, runs Grunt, compares sha1 hashes,
       # and then RESTORES the backup - so by the time any later step runs, its
       # Grunt output is already gone. Re-run Moodle's own Grunt directly to
-      # produce the real artefacts, then publish those.
+      # produce the real artefacts, then publish those. Works for any plugin:
+      # the install path is found by looking for the version.php in the Moodle
+      # tree that declares this plugin's component.
       - name: Rebuild AMD with Moodle's Grunt
         if: ${{ failure() }}
+        continue-on-error: true
         run: |
-          cd moodle/payment/gateway/paddle/amd
-          "$GITHUB_WORKSPACE/moodle/node_modules/.bin/grunt" amd || true
+          echo "AMD_BUILD_PATH=moodle/.no-amd-build" >> "$GITHUB_ENV"
+          COMPONENT=$(sed -n "s/.*\$plugin->component *= *'\([^']*\)'.*/\1/p" plugin/version.php | head -1)
+          if [ -z "$COMPONENT" ]; then echo "No component in plugin/version.php"; exit 0; fi
+          PLUGIN_PATH=$(cd moodle && find . -name version.php -not -path "./node_modules/*" \
+            -exec grep -l "component *= *'$COMPONENT'" {} \; 2>/dev/null | head -1 | xargs -r dirname)
+          if [ -z "$PLUGIN_PATH" ] || [ ! -d "moodle/$PLUGIN_PATH/amd" ]; then
+            echo "No amd directory for $COMPONENT"; exit 0
+          fi
+          ( cd "moodle/$PLUGIN_PATH/amd" && "$GITHUB_WORKSPACE/moodle/node_modules/.bin/grunt" amd ) || true
+          echo "AMD_BUILD_PATH=moodle/$PLUGIN_PATH/amd/build" >> "$GITHUB_ENV"
+
       - name: Upload Grunt output
         if: ${{ failure() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: grunt-build-${{ matrix.php }}-${{ matrix.moodle-branch }}-${{ matrix.database }}
-          path: moodle/payment/gateway/paddle/amd/build
+          path: ${{ env.AMD_BUILD_PATH }}
           if-no-files-found: ignore
 
       - name: PHPUnit tests

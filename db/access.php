@@ -19,7 +19,7 @@
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
@@ -28,6 +28,25 @@ $capabilities = [
     'plagiarism/essayguard:viewreport' => [
         'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
+        'contextlevel' => CONTEXT_MODULE,
+        'archetypes' => [
+            'editingteacher' => CAP_ALLOW,
+            'manager' => CAP_ALLOW,
+        ],
+    ],
+
+    // V1.2.224 FIX-EG-RESCORE-READCAP: rescore.php was gated on :viewreport alone, a
+    // capability declared 'read'. That page writes rows to plagiarism_essayguard_sc in
+    // bulk and consumes vendor API calls, so a role granted read-only reporting access
+    // could trigger both. A write action needs a write-captype capability of its own.
+    //
+    // Defaulted to the same archetypes as :viewreport so no existing site loses the
+    // ability - an editing teacher or manager who could rescore yesterday still can -
+    // while a site that has granted :viewreport to a non-editing role (a tutor, an
+    // external examiner) now gets the read-only behaviour it was asking for.
+    'plagiarism/essayguard:rescore' => [
+        'riskbitmask' => RISK_PERSONAL | RISK_SPAM,
+        'captype' => 'write',
         'contextlevel' => CONTEXT_MODULE,
         'archetypes' => [
             'editingteacher' => CAP_ALLOW,

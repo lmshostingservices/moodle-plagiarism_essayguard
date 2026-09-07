@@ -18,9 +18,10 @@ namespace plagiarism_essayguard;
 
 defined('MOODLE_INTERNAL') || die();
 
-// Note: lib.php is NOT auto-loaded when Moodle's event system dispatches to an observer
-// via the autoloader. Without this require_once, any call to a lib.php function
-// (e.g. plagiarism_essayguard_check_unlock) throws "Call to undefined function".
+/* The lib.php file is NOT auto-loaded when Moodle's event system dispatches to an observer
+ * via the autoloader. Without this require_once, any call to a lib.php function
+ * (e.g. plagiarism_essayguard_check_unlock) throws "Call to undefined function".
+ */
 require_once(__DIR__ . '/../lib.php');
 
 use plagiarism_essayguard\local\service\analyser;
@@ -45,14 +46,15 @@ use plagiarism_essayguard\local\service\fingerprint;
  *   5. Update the student fingerprint/baseline.
  *
  * @package    plagiarism_essayguard
- * @copyright  2026 EssayGraderAI
+ * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class observer {
     /**
      * Handle mod_assign assessable_submitted and mod_forum assessable_uploaded.
      *
-     * @param \core\event\base $event
+     * @param \core\event\base $event The assessable_submitted or assessable_uploaded event.
+     * @return void
      */
     public static function on_assessable_submitted(\core\event\base $event): void {
         global $DB;
@@ -66,7 +68,16 @@ class observer {
         if (!self::is_cm_active($cmid)) {
             return;
         }
-        $userid  = (int)$event->userid;
+        /*
+         * V1.2.229 FIX-EG-OBSERVER-WRONG-USER: $event->userid is whoever performed the
+         * action, not necessarily the author. When a teacher submits on a student's
+         * behalf, core sets userid = teacher and relateduserid = student. Scoring under
+         * the submitter filed the student's writing telemetry against the teacher: the
+         * student's badge never appeared, the teacher acquired a score for work they did
+         * not write, and privacy\provider - which keys on userid - missed the record on
+         * both export and erasure. relateduserid is set only when the two differ.
+         */
+        $userid  = (int)($event->relateduserid ?: $event->userid);
         $context = \context_module::instance($cmid);
 
         // FIX-EG-ATTEMPTKEY (v1.2.81): inject_tracker() now generates the key as
@@ -79,7 +90,7 @@ class observer {
 
         if ($event->eventname === '\mod_assign\event\assessable_submitted') {
             $finaltext = self::get_assign_text($event->objectid);
-        } elseif ($event->eventname === '\mod_forum\event\assessable_uploaded') {
+        } else if ($event->eventname === '\mod_forum\event\assessable_uploaded') {
             $finaltext = self::get_forum_text($event->objectid);
         }
 
@@ -89,7 +100,8 @@ class observer {
     /**
      * Handle mod_quiz attempt_submitted.
      *
-     * @param \mod_quiz\event\attempt_submitted $event
+     * @param \core\event\base $event The mod_quiz attempt_submitted event.
+     * @return void
      */
     public static function on_quiz_attempt_submitted(\core\event\base $event): void {
         global $DB;
@@ -104,7 +116,16 @@ class observer {
             return;
         }
 
-        $userid  = (int)$event->userid;
+        /*
+         * V1.2.229 FIX-EG-OBSERVER-WRONG-USER: for a quiz attempt this matters more than
+         * for an assignment. \mod_quiz\event\attempt_submitted REQUIRES relateduserid -
+         * its validate_data() throws a coding_exception without it - because the attempt
+         * owner is not always the submitter. An OVERDUE attempt is auto-submitted by the
+         * quiz cron task, where $event->userid is the cron user, not the student. Every
+         * such attempt was therefore scored against the wrong user id, and the student's
+         * own record never appeared at all.
+         */
+        $userid  = (int)($event->relateduserid ?: $event->userid);
         $context = \context_module::instance($cmid);
 
         // FIX-EG-ATTEMPTKEY (v1.2.81): since inject_tracker() now generates the key as
@@ -127,13 +148,13 @@ class observer {
         // student who copy-pastes and immediately submits (before the 5-second periodic
         // flush fires) appears identical to an honest typist — both produce paste_events=0
         // — and is wrongly scored MEDIUM via the linguistic fallback.
-        $attempt_timestart  = 0;
-        $attempt_timefinish = 0;
+        $attempttimestart  = 0;
+        $attempttimefinish = 0;
         if ($quizattemptid > 0) {
             $atrow = $DB->get_record('quiz_attempts', ['id' => $quizattemptid], 'timestart,timefinish');
             if ($atrow) {
-                $attempt_timestart  = (int)$atrow->timestart;
-                $attempt_timefinish = (int)$atrow->timefinish;
+                $attempttimestart  = (int)$atrow->timestart;
+                $attempttimefinish = (int)$atrow->timefinish;
             }
         }
 
@@ -148,46 +169,142 @@ class observer {
         // Previous order (aggregate first) meant per-question records were always absent
         // during aggregate scoring, so the elevation could never fire and the gradebook
         // aggregate stayed at 0% even when per-question records showed a higher risk.
-        $slot_texts = self::get_quiz_essay_texts_by_slot($event->objectid);
-        foreach ($slot_texts as $slot => $slottext) {
-            self::do_score($userid, $cmid, $context->id, $attemptkey, $slottext, (int)$slot,
-                $attempt_timestart, $attempt_timefinish);
+        $slottexts = self::get_quiz_essay_texts_by_slot($event->objectid);
+        foreach ($slottexts as $slot => $slottext) {
+            self::do_score(
+                $userid,
+                $cmid,
+                $context->id,
+                $attemptkey,
+                $slottext,
+                (int)$slot,
+                $attempttimestart,
+                $attempttimefinish
+            );
         }
 
         // Aggregate score (qslot = 0) — scored LAST so FIX-EG-AGG-PERQ-CONSISTENCY
         // can read the per-question records written above.
-        self::do_score($userid, $cmid, $context->id, $attemptkey, $finaltext, 0,
-            $attempt_timestart, $attempt_timefinish);
+        self::do_score(
+            $userid,
+            $cmid,
+            $context->id,
+            $attemptkey,
+            $finaltext,
+            0,
+            $attempttimestart,
+            $attempttimefinish
+        );
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    /**
+     * V1.2.229 FIX-EG-ORPHAN-ON-CM-DELETE: purge everything Essay Guard holds for a
+     * course module when that module is deleted.
+     *
+     * NOTHING USED TO DO THIS, and the consequence is not merely untidy.
+     *
+     * plagiarism_essayguard_sc and _ev key their rows on contextid, and
+     * privacy\provider::get_contexts_for_userid() reports those contextids to Moodle's
+     * privacy framework. When a teacher deletes the quiz, core deletes the module
+     * context - and core's own contextlist_base::get_contexts() silently DROPS any
+     * context id that no longer resolves (it catches the exception and unsets the id).
+     *
+     * So from the moment the activity is deleted, that student's risk scores, their
+     * complete keystroke-level behavioural profile and the explanations written about
+     * them become permanently invisible to both the export and the erasure paths, while
+     * still sitting in the database. A right-to-erasure request completes successfully
+     * and removes none of it. There is no route left that can ever delete those rows -
+     * not the cleanup task (it prunes _ev only, and never _sc), not the privacy
+     * framework, not the plugin's own uninstall if the site keeps the plugin.
+     *
+     * Deleting an activity is also the clearest instruction a teacher can give that the
+     * data belongs to something that no longer exists, so purging here is what the site
+     * already believes is happening.
+     *
+     * Keyed on cmid rather than contextid: by the time this event is dispatched the
+     * context row is already gone, but cmid is carried on the event and is never reused.
+     *
+     * @param \core\event\base $event The core course_module_deleted event.
+     * @return void
+     */
+    public static function on_course_module_deleted(\core\event\base $event): void {
+        global $DB;
+
+        $cmid = (int)$event->objectid;
+        if ($cmid <= 0) {
+            return;
+        }
+
+        $DB->delete_records('plagiarism_essayguard_ev', ['cmid' => $cmid]);
+        $DB->delete_records('plagiarism_essayguard_sc', ['cmid' => $cmid]);
+
+        // The per-activity checkbox and the two per-activity user preferences describe an
+        // activity that no longer exists; they would otherwise accumulate forever.
+        unset_config('enabled_cm_' . $cmid, 'plagiarism_essayguard');
+        $DB->delete_records_select(
+            'user_preferences',
+            'name = :akname OR name = :lsname',
+            [
+                'akname' => 'essayguard_ak_' . $cmid,
+                'lsname' => 'essayguard_lastscore_' . $cmid,
+            ]
+        );
+    }
+
+    /* ── Private helpers ────────────────────────────────────────────────────── */
 
     /**
      * Run analyser::score_attempt() and update the student fingerprint.
      *
-     * @param int $qslot  0 = aggregate, N = specific quiz question slot (v1.2.14+)
+     * @param int    $userid             The student being scored.
+     * @param int    $cmid               The course module the attempt belongs to.
+     * @param int    $contextid          The module context id.
+     * @param string $attemptkey         The typing session key.
+     * @param string $finaltext          The submitted text, for linguistic analysis.
+     * @param int    $qslot              Zero scores the attempt as a whole; a positive N
+     *                                   scores one quiz question slot (v1.2.14+).
+     * @param int    $attempttimestart  Attempt start time, for the server-side speed signal.
+     * @param int    $attempttimefinish Attempt finish time, for the same signal.
+     * @return void
      */
     private static function do_score(
-        int    $userid,
-        int    $cmid,
-        int    $contextid,
+        int $userid,
+        int $cmid,
+        int $contextid,
         string $attemptkey,
         string $finaltext,
-        int    $qslot = 0,
-        int    $attempt_timestart = 0,
-        int    $attempt_timefinish = 0
+        int $qslot = 0,
+        int $attempttimestart = 0,
+        int $attempttimefinish = 0
     ): void {
+        // V1.2.221: no attempt key means NO telemetry was ever captured for this
+        // submission - inject_tracker() never ran (mobile app, a theme that suppresses the
+        // footer hook, JS disabled), so there is nothing to score. get_stored_attemptkey()
+        // returns '' in that case and nothing checked for it: score_attempt() found no
+        // events, computed 0, and INSERTED a real row reading riskscore 0 / risklevel low.
+        //
+        // The class report then showed that student with a green LOW badge. An integrity
+        // product reporting "no evidence collected" as "evidence of authenticity" is the
+        // worst failure available to it. Absence of telemetry must produce no record.
+        if (trim((string)$attemptkey) === '') {
+            \debugging(
+                'Essay Guard: no attempt key for user ' . $userid . ' on cmid ' . $cmid
+                    . ' - telemetry was never captured, so no score is recorded.',
+                DEBUG_DEVELOPER
+            );
+            return;
+        }
         try {
             $result = analyser::score_attempt(
                 $userid,
                 $cmid,
                 $contextid,
                 $attemptkey,
-                [],          // linguistic computed inline from $finaltext
+                [], // Linguistic computed inline from $finaltext.
                 $finaltext,
                 $qslot,
-                $attempt_timestart,
-                $attempt_timefinish
+                $attempttimestart,
+                $attempttimefinish
             );
 
             // Only update the fingerprint baseline from the aggregate score,
@@ -197,8 +314,11 @@ class observer {
             }
         } catch (\Throwable $e) {
             // Never let scoring errors break submission. Log silently.
-            error_log('[plagiarism_essayguard] scoring error for user=' . $userid
-                . ' cmid=' . $cmid . ' qslot=' . $qslot . ': ' . $e->getMessage());
+            debugging(
+                '[plagiarism_essayguard] scoring error for user=' . $userid
+                    . ' cmid=' . $cmid . ' qslot=' . $qslot . ': ' . $e->getMessage(),
+                DEBUG_DEVELOPER
+            );
         }
     }
 
@@ -215,6 +335,11 @@ class observer {
      * with any session that started before this version was installed.
      *
      * Returns empty string if the tracker was not active for this student.
+     *
+     * @param int $userid The student whose session key is wanted.
+     * @param int $cmid   The course module the session belongs to.
+     * @return string The typing session key, or the empty string when the tracker was
+     *                not active for this student in this activity.
      */
     private static function get_stored_attemptkey(int $userid, int $cmid): string {
         global $DB;
@@ -243,6 +368,7 @@ class observer {
      * Returns empty string if the assignment uses file uploads only.
      *
      * @param int $submissionid  The assign_submission.id from the event objectid.
+     * @return string The submitted online text as plain text, or '' when there is none.
      */
     private static function get_assign_text(int $submissionid): string {
         global $DB;
@@ -267,6 +393,7 @@ class observer {
      * Extract plain text from a forum post.
      *
      * @param int $postid  The forum_posts.id from the event objectid.
+     * @return string The post message as plain text, or '' when the post is missing.
      */
     private static function get_forum_text(int $postid): string {
         global $DB;
@@ -281,7 +408,7 @@ class observer {
         return self::extract_plain_text($post->message);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    /* ── Helpers ────────────────────────────────────────────────────────────── */
 
     /**
      * Bulletproof HTML → plain-text extractor for student essay answers.
@@ -333,14 +460,15 @@ class observer {
             return [];
         }
 
-        // Note: qas.id is the unique primary key and MUST be the first column so Moodle's
-        // get_records_sql() can use it as the array key without "Duplicate value" errors.
-        // qa.slot is NOT unique across rows — a question can have multiple attempt steps
-        // (autosaves, state transitions) each storing an 'answer' in step_data. Without
-        // ORDER BY the PHP hash-map overwrites non-deterministically; an older partial text
-        // can win over the final submitted answer, yielding empty or truncated text and
-        // causing the scoring gate to fail. ORDER BY qas.id DESC (most recent first) +
-        // !isset guard ensures the most recently written answer per slot is always used.
+        /* The qas.id column is the unique primary key and MUST be the first column so Moodle's
+         * get_records_sql() can use it as the array key without "Duplicate value" errors.
+         * qa.slot is NOT unique across rows — a question can have multiple attempt steps
+         * (autosaves, state transitions) each storing an 'answer' in step_data. Without
+         * ORDER BY the PHP hash-map overwrites non-deterministically; an older partial text
+         * can win over the final submitted answer, yielding empty or truncated text and
+         * causing the scoring gate to fail. ORDER BY qas.id DESC (most recent first) +
+         * !isset guard ensures the most recently written answer per slot is always used.
+         */
         $sql = "SELECT qas.id, qa.slot, qasd.value
                   FROM {question_attempt_steps} qas
                   JOIN {question_attempt_step_data} qasd ON qasd.attemptstepid = qas.id
@@ -380,7 +508,7 @@ class observer {
         // This is Moodle's own auto-generated plain-text summary of the student's response
         // and is always populated for essay questions regardless of editor type.
         if (empty($result)) {
-            $summary_rows = $DB->get_records_sql(
+            $summaryrows = $DB->get_records_sql(
                 "SELECT id, slot, responsesummary
                    FROM {question_attempts}
                   WHERE questionusageid = :qubaid
@@ -389,7 +517,7 @@ class observer {
                ORDER BY slot ASC",
                 ['qubaid' => $attempt->uniqueid]
             );
-            foreach ($summary_rows as $sr) {
+            foreach ($summaryrows as $sr) {
                 $slot = (int)$sr->slot;
                 if (!isset($result[$slot])) {
                     $text = self::extract_plain_text($sr->responsesummary ?? '');
@@ -411,6 +539,7 @@ class observer {
      * needsgrading state within the given quiz attempt's question usage.
      *
      * @param int $quizattemptid  The quiz_attempts.id from the event objectid.
+     * @return string Every essay answer in the attempt, joined by blank lines, or ''.
      */
     private static function get_quiz_essay_text(int $quizattemptid): string {
         global $DB;
@@ -420,12 +549,13 @@ class observer {
             return '';
         }
 
-        // Note: qas.id is the unique primary key and MUST be the first column so Moodle's
-        // get_records_sql() can use it as the array key without "Duplicate value" errors.
-        // qa.slot is included so we can deduplicate per question (see ORDER BY note below).
-        // FIX-EG-ZERO-SCORE: ORDER BY qas.id DESC + !isset deduplication ensures only the
-        // most recently written answer per slot is used, preventing older autosave steps
-        // from duplicating the text (which would inflate linguistic metrics and text length).
+        /* The qas.id column is the unique primary key and MUST be the first column so Moodle's
+         * get_records_sql() can use it as the array key without "Duplicate value" errors.
+         * qa.slot is included so we can deduplicate per question (see ORDER BY note below).
+         * FIX-EG-ZERO-SCORE: ORDER BY qas.id DESC + !isset deduplication ensures only the
+         * most recently written answer per slot is used, preventing older autosave steps
+         * from duplicating the text (which would inflate linguistic metrics and text length).
+         */
         $sql = "SELECT qas.id, qa.slot, qasd.value
                   FROM {question_attempt_steps} qas
                   JOIN {question_attempt_step_data} qasd ON qasd.attemptstepid = qas.id
@@ -449,22 +579,24 @@ class observer {
         // Collect the most recent answer per slot (first seen = most recent due to DESC).
         // FIX-EG-EXTRACT-BULLETPROOF (v1.2.84): Use extract_plain_text() for same reasons
         // as in get_quiz_essay_texts_by_slot() — handles TinyMCE &nbsp; empty paragraphs.
-        $per_slot = [];
+        $perslot = [];
         foreach ($rows as $row) {
             $slot = (int)$row->slot;
-            if (!isset($per_slot[$slot])) {
+            if (!isset($perslot[$slot])) {
                 $text = self::extract_plain_text($row->value ?? '');
                 if ($text !== '') {
-                    $per_slot[$slot] = $text;
+                    $perslot[$slot] = $text;
                 }
             }
         }
 
-        return implode("\n\n", $per_slot);
+        return implode("\n\n", $perslot);
     }
 
     /**
      * Check that the plugin is globally enabled and the site has a valid unlock.
+     *
+     * @return bool True when the observer should go on to score the submission.
      */
     private static function is_active(): bool {
         // FIX-EG-ENABLED-CHECK-INCONSISTENT (v1.2.94): get_config() returns PHP false
@@ -473,8 +605,8 @@ class observer {
         // making the observer skip ALL scoring. inject_tracker() was fixed in v1.2.88
         // (FIX-EG-GLOBAL-ENABLED-MISSING) with the same logic — applying the same fix here.
         // Treat missing key as enabled; only skip when the key EXISTS and is explicitly falsy.
-        $global_enabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($global_enabled !== false && empty($global_enabled)) {
+        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
+        if ($globalenabled !== false && empty($globalenabled)) {
             return false;
         }
         if (during_initial_install()) {
@@ -486,22 +618,49 @@ class observer {
         // must be explicitly addressed from the root namespace.
         $unlocked = \plagiarism_essayguard_check_unlock();
         if (!$unlocked) {
-            // Note: check_unlock() already logs the reason (HTTP code, curl error, or not-unlocked).
-            // This additional log entry surfaces it at the observer level so admins can
-            // correlate "no Essay Guard data" in the report with the unlock failure.
-            error_log('[plagiarism_essayguard] observer skipped: site not unlocked.'
-                . ' No scores will be written. Check Essay Guard settings and ensure'
-                . ' the plugin has been unlocked in the EssayGraderAI dashboard.');
+            /* The check_unlock() call already logs the reason (HTTP code, curl error, or not-unlocked).
+             * This additional log entry surfaces it at the observer level so admins can
+             * correlate "no Essay Guard data" in the report with the unlock failure.
+             */
+            debugging(
+                '[plagiarism_essayguard] observer skipped: site not unlocked.'
+                    . ' No scores will be written. Check Essay Guard settings and ensure'
+                    . ' the plugin has been unlocked in the EssayGraderAI dashboard.',
+                DEBUG_DEVELOPER
+            );
         }
         return $unlocked;
     }
 
     /**
      * Check whether Essay Guard is enabled for a specific course module.
-     * A missing config key (never saved) defaults to enabled.
+     *
+     * V1.2.229 FIX-EG-OBSERVER-CM-GATE-DIVERGES: this used to be a private copy of the
+     * per-activity checkbox test:
+     *
+     *     $value = get_config('plagiarism_essayguard', 'enabled_cm_' . $cmid);
+     *     return ($value === false) || !empty($value);
+     *
+     * That is only HALF of what plagiarism_essayguard_is_cm_active() does. Since
+     * v1.2.176 the real gate consults the lms-labs.com platform settings FIRST: an admin
+     * who switches on "Essay Guard for all assignments" or "for all quizzes" on the
+     * platform overrides the per-activity checkbox. Every other caller in the plugin -
+     * inject_tracker(), print_disclosure(), get_links(), report.php - uses that function.
+     * The observer used the copy.
+     *
+     * Consequence on any site using the site-wide switch with the per-activity checkbox
+     * left unticked: the tracker WAS injected, the student's keystrokes WERE recorded
+     * into plagiarism_essayguard_ev, get_links() WOULD have shown a badge - and then the
+     * one component that turns telemetry into a score at submission time returned early.
+     * The telemetry accumulated with nothing ever scoring it, and the teacher saw no
+     * badge on a submission the plugin had been watching the whole time.
+     *
+     * Delegating means there is exactly one definition of "is Essay Guard on here".
+     *
+     * @param int $cmid The course module to test.
+     * @return bool True when Essay Guard is enabled for that activity.
      */
     private static function is_cm_active(int $cmid): bool {
-        $value = get_config('plagiarism_essayguard', 'enabled_cm_' . $cmid);
-        return ($value === false) || !empty($value);
+        return \plagiarism_essayguard_is_cm_active($cmid);
     }
 }

@@ -19,18 +19,41 @@
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
- * @license    http://www.gnu.org/licenses/gpl-3.0.html GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace plagiarism_essayguard\task;
 
-defined('MOODLE_INTERNAL') || die();
-
+/**
+ * Scheduled task that prunes raw typing telemetry past the data-retention window.
+ *
+ * plagiarism_essayguard_ev holds keystroke-level events and is by far the largest
+ * table the plugin writes; once an attempt has been scored those rows are redundant.
+ * This task deletes events older than the "retentiondays" admin setting (0 disables
+ * pruning entirely). Score records in plagiarism_essayguard_sc are deliberately never
+ * pruned here, so historical risk assessments stay viewable in the reports.
+ *
+ * @package    plagiarism_essayguard
+ * @copyright  2026 LMS-Labs
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 class cleanup extends \core\task\scheduled_task {
+    /**
+     * Name shown for this task on the scheduled tasks admin page.
+     *
+     * @return string The translated task name.
+     */
     public function get_name(): string {
         return get_string('cleanup_task', 'plagiarism_essayguard');
     }
 
+    /**
+     * Delete raw typing telemetry past the configured retention window.
+     *
+     * Session scores and metrics are kept so historical reports stay viewable.
+     *
+     * @return void
+     */
     public function execute() {
         global $DB;
 
@@ -60,6 +83,9 @@ class cleanup extends \core\task\scheduled_task {
             ['cutoff' => $cutoff]
         );
 
-        mtrace("Essay Guard cleanup: deleted {$evdeleted} telemetry event(s) older than {$retentiondays} days. Score records are retained.");
+        mtrace(
+            "Essay Guard cleanup: deleted {$evdeleted} telemetry event(s) older than "
+                . "{$retentiondays} days. Score records are retained."
+        );
     }
 }
