@@ -11,7 +11,7 @@
 # Essay Guard — Privacy-First Writing Authenticity Engine
 
 **Version:** see `version.php` and the top of [CHANGELOG.md](CHANGELOG.md) - deliberately not repeated here, so it cannot go stale  
-**Moodle Compatibility:** Moodle 4.5 LTS - 5.2 (`$plugin->requires = 2024100700`, `$plugin->supported = [405, 502]`)  
+**Moodle Compatibility:** Moodle 4.4 - 5.2 (`$plugin->requires = 2024042200`, `$plugin->supported = [404, 502]`)  
 **Plugin Type:** Plagiarism Plugin (`plagiarism_essayguard`)  
 **Licence:** GNU GPL v3 or later
 

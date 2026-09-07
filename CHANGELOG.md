@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.2.233 - 2026-09-07
+
+**Moodle 4.4 restored as the supported floor**
+
+Version: `2026090703`. One-line change to `version.php`, plus the reasoning behind it.
+
+### Fixed - the plugin could not be installed on Moodle 4.4
+
+`$plugin->requires` was `2024100700` (Moodle 4.5 LTS) and `$plugin->supported` was
+`[405, 502]`. Moodle's dependency check reports the `supported` range as a hard requirement,
+so a 4.4 site refused the upgrade outright - "Moodle 405 - 502 Fails" - and said only that the
+requirements must be solved first.
+
+The 4.5 floor arrived on 29 August in 1.0.85 / 1.2.225 and was a **policy** choice, not a
+technical one. That release's own comment says "The real floor is Moodle 4.4"; 4.5 was chosen
+because it is the lowest branch still receiving security fixes, and because it is where core
+deleted `plagiarism_update_status()`, which would have made this plugin's legacy compatibility
+scaffolding dead code. Neither is a code requirement, and that scaffolding was never actually
+removed - so nothing in the plugin needs 4.5.
+
+The cost of the choice was invisible until an install was attempted: every build since 29 August
+has been un-installable on 4.4, and Moodle gives no hint that a declared floor is a preference
+rather than a constraint.
+
+Now `requires = 2024042200` (Moodle 4.4) and `supported = [404, 502]`. Verified before
+lowering: all three output hooks registered in `db/hooks.php` exist in 4.4; the legacy
+`update_status()` scaffolding and the standalone plugin class are both still present; and 4.4's
+minimum PHP is 8.1, so the arrow functions that forced the floor up off Moodle 4.0 remain safe.
+
+Moodle 4.4 is nonetheless out of general support. This change unblocks the upgrade; it is not an
+endorsement of staying on 4.4.
+
 ## 1.2.232 - 2026-09-07
 
 **Second release-pipeline pass**

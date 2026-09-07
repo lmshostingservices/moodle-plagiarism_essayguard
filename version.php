@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_essayguard';
-$plugin->version   = 2026090702;
-$plugin->release   = '1.2.232';
+$plugin->version   = 2026090703;
+$plugin->release   = '1.2.233';
 // V1.2.219: The full release history used to be appended to the $plugin->release
 // assignment above as a single 39,645-character '//' comment, plus a second
 // 1,152-character one on this line. version.php is parsed on every page load and
@@ -60,6 +60,29 @@ $plugin->release   = '1.2.232';
 // 5.2 site - which is what the author runs in production - both plugins were listed as
 // unsupported in Site administration > Plugins, and the plugin directory would not
 // advertise 5.2 compatibility.
-$plugin->requires  = 2024100700;   // Moodle 4.5 LTS.
+
+// V1.2.233 / v1.0.91 FLOOR LOWERED TO 4.4, reversing part of the decision above.
+//
+// The 4.5 floor was a POLICY choice, not a technical one. The comment above says so
+// explicitly: "The real floor is Moodle 4.4". 4.5 was picked for two reasons - it is the
+// lowest branch still receiving security fixes, and it is where core deleted
+// plagiarism_update_status(), which would have made this plugin's legacy scaffolding dead
+// code. Neither reason is a code requirement, and the scaffolding was never actually
+// deleted, so it still works on 4.4.
+//
+// What that policy choice cost: it silently made the plugin un-upgradeable on Moodle 4.4,
+// which is what the author's own site runs. Moodle's dependency check reports the
+// `supported` range as a hard requirement and refuses the install - "Moodle 405 - 502
+// Fails" - with no indication that the floor is a preference rather than a constraint.
+//
+// Verified before lowering: all three output hooks registered in db/hooks.php
+// (before_standard_head_html_generation, before_standard_top_of_body_html_generation,
+// before_footer_html_generation) exist in 4.4; the legacy update_status() scaffolding and
+// the standalone plugin class are both still present; and 4.4's minimum PHP is 8.1, so the
+// arrow functions that forced the floor up off Moodle 4.0 are not a problem here.
+//
+// NOTE FOR THE SITE OWNER: Moodle 4.4 is out of general support. Lowering this floor
+// unblocks the upgrade; it does not make 4.4 a good place to stay.
+$plugin->requires  = 2024042200;   // Moodle 4.4.
 $plugin->maturity  = MATURITY_STABLE;
-$plugin->supported = [405, 502];
+$plugin->supported = [404, 502];
