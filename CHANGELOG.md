@@ -1,8 +1,14 @@
 # Changelog
 
-## 1.2.231 - 2026-09-07
+## 1.2.232 - 2026-09-07
 
 **Second release-pipeline pass**
+
+Released as 1.2.232 rather than 1.2.231. The 1.2.231 tag had already been pushed to
+`lmshostingservices/moodle-plagiarism_essayguard` against the build made before the README
+correction below, and release tags are immutable - they cannot be repointed at new bytes.
+The content of this release is the pipeline-conformance work described here plus that
+correction; 1.2.231 should be treated as superseded.
 
 Version: `2026090701`. No functional change. 1.2.230 cleared six of the nine pipeline items;
 this release clears the rest. Every code edit was verified token-identical to 1.2.230 with
@@ -22,6 +28,14 @@ constant.
 does not accept concatenation in any form. All 67 are now single string literals. The one help
 string that carried paragraph breaks is a double-quoted literal with `\n` escapes rather than
 a concatenated `"\n\n"`, so it stays on one line; it contains no `$`, so nothing interpolates.
+
+### Fixed - the README stated a version and a Moodle range that were both wrong
+
+It claimed version 1.2.219 (twelve releases behind) and Moodle 4.0 - 5.1, while `version.php`
+declares `requires = 2024100700` and `supported = [405, 502]` - that is Moodle 4.5 LTS to 5.2.
+A site on 4.0 would have followed the README straight into the PHP 7.3 parse error that
+1.2.226 exists to prevent. The version line is now a pointer to `version.php` and the changelog
+rather than a fourth hand-maintained copy of the release string.
 
 ### Changed - the risk badge suffix is no longer stored upper-case
 

@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_essayguard';
-$plugin->version   = 2026090701;
-$plugin->release   = '1.2.231';
+$plugin->version   = 2026090702;
+$plugin->release   = '1.2.232';
 // V1.2.219: The full release history used to be appended to the $plugin->release
 // assignment above as a single 39,645-character '//' comment, plus a second
 // 1,152-character one on this line. version.php is parsed on every page load and
