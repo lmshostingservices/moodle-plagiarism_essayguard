@@ -43,6 +43,35 @@ namespace plagiarism_essayguard\local\service;
  */
 class analyser {
     /**
+     * Insertion causes the browser reports that are not a paste.
+     *
+     * An undo, a redo, an IME composition, dictation or an autocorrect replacement all
+     * produce a large text delta with no clipboard involved. Treating them as pastes
+     * reported assistive-technology users and ordinary editing as misconduct.
+     *
+     * @var string[]
+     */
+    /**
+     * Ceiling on the combined contribution of the paste-derived signals (3-7).
+     *
+     * These describe the consequences of one paste rather than five findings, so their
+     * total is bounded. See FIX-EG-PASTE-NOT-COUNTED-SIX-TIMES.
+     *
+     * @var int
+     */
+    const PASTE_DERIVED_CAP = 25;
+
+    const BENIGN_INPUT_TYPES = [
+        'historyUndo',
+        'historyRedo',
+        'insertCompositionText',
+        'insertFromComposition',
+        'insertReplacementText',
+        'insertFromDictation',
+        'insertFromYank',
+    ];
+
+    /**
      * Score a typing session from its raw events.
      * Optionally incorporates linguistic metrics from the final text.
      *
@@ -79,6 +108,21 @@ class analyser {
     ): array {
         global $DB;
 
+        // BASELINE-EG-WELFORD (v1.4.0): the baseline is partitioned by activity type, so
+        // quiz writing (short, time-pressured) is never compared against assignment
+        // writing (long, drafted at leisure). Blending them inflates the variance until
+        // nothing can deviate from it, which is the quiet way a comparative signal stops
+        // working.
+        $egcontexttype = 'other';
+        try {
+            $egcm = get_coursemodule_from_id(null, $cmid, 0, false, IGNORE_MISSING);
+            if ($egcm) {
+                $egcontexttype = fingerprint::normalise_context_type($egcm->modname);
+            }
+        } catch (\Throwable $e) {
+            $egcontexttype = 'other';
+        }
+
         // Guard against oversized text from the PHP event observer path
         // (the JS path already trims to 50,000 chars before sending).
         if ($finaltext !== '') {
@@ -89,15 +133,32 @@ class analyser {
             $linguistic = linguistic::analyse($finaltext);
         }
 
-        $allevents = $DB->get_records(
-            'plagiarism_essayguard_ev',
-            [
-                'userid'     => $userid,
-                'cmid'       => $cmid,
-                'attemptkey' => $attemptkey,
-                ],
-            'id ASC'
-        );
+        // PERF-EG-EVENT-CACHE (v1.3.0): read the event set once per request.
+        //
+        // The observer scores every essay slot and then the aggregate, so a three-essay
+        // quiz ran FOUR complete passes over the same rows — re-reading all of them and
+        // re-running json_decode on every payload each time — synchronously, inside the
+        // student's "Submit all and finish" request. The set is identical for all four
+        // calls. The static is per-request, so a later rescore in the same request still
+        // sees the rows as they were when scoring began, which is what we want: all of
+        // an attempt's slots should be scored from one consistent snapshot.
+        static $eventcache = [];
+        $eventcachekey = $userid . ':' . $cmid . ':' . $attemptkey;
+
+        if (array_key_exists($eventcachekey, $eventcache)) {
+            $allevents = $eventcache[$eventcachekey];
+        } else {
+            $allevents = $DB->get_records(
+                'plagiarism_essayguard_ev',
+                [
+                    'userid'     => $userid,
+                    'cmid'       => $cmid,
+                    'attemptkey' => $attemptkey,
+                    ],
+                'id ASC'
+            );
+            $eventcache[$eventcachekey] = $allevents;
+        }
 
         // V1.2.14: Filter to per-question events when qslot > 0.
         // In aggregate mode (qslot = 0) all events are included regardless of their
@@ -478,6 +539,12 @@ class analyser {
         /* --- WPM snapshots --- */
         $wpmsnapshots = [];
 
+        /* --- Window-switching, for the transcription signal (v1.4.0) --- */
+        $focusreturns         = 0;
+        $blurcount            = 0;
+        $blurgaps             = [];
+        $lasteventtimeforblur = null;
+
         /* --- Session time --- */
         $typingtime = 0;
         $idletime   = 0;
@@ -512,6 +579,7 @@ class analyser {
                 }
             }
             $prevtime = $evtime;
+            $lasteventtimeforblur = $evtime;
 
             switch ($event->eventname) {
                 case 'keydown':
@@ -592,10 +660,38 @@ class analyser {
                     // FIX-EG-LARGE-INSERT (v1.2.73): emitted by tracker.js when any
                     // input event delta > 20 chars — catches medium-sized pastes that
                     // don't meet the maxburstchars threshold.
+                    //
+                    // A11Y-EG-INPUTTYPE (v1.3.0): the tracker now reports what the
+                    // browser said caused the insertion, and refuses to emit the event
+                    // for an undo, a redo, a composition (CJK input), dictation or an
+                    // autocorrect replacement. This server-side check covers events
+                    // already in the database from older trackers, which cannot be
+                    // distinguished any other way. An undo is not a paste, and the
+                    // previous behaviour scored one Ctrl+Z as MEDIUM and speech-to-text
+                    // as HIGH.
+                    $litype = (string)($payload['inputtype'] ?? '');
+                    if (in_array($litype, self::BENIGN_INPUT_TYPES, true)) {
+                        break;
+                    }
                     $largeinserts++;
                     $d = (int)($payload['delta'] ?? 0);
                     if ($d > $largeinsertmaxdelta) {
                         $largeinsertmaxdelta = $d;
+                    }
+                    break;
+
+                case 'focus':
+                    // CLAIM-EG-TRANSCRIPTION (v1.4.0): focus and blur have been captured
+                    // since the first release and were never read by anything. A student
+                    // copying from another window leaves and returns on a rhythm; someone
+                    // composing does not. Counting the returns is free.
+                    $focusreturns++;
+                    break;
+
+                case 'blur':
+                    $blurcount++;
+                    if ($lasteventtimeforblur !== null) {
+                        $blurgaps[] = max(0, $evtime - $lasteventtimeforblur);
                     }
                     break;
 
@@ -664,12 +760,29 @@ class analyser {
         // BUG-EG-WPM-ZERO (v1.2.53): The blur-based wpm_snapshot in tracker.js captures WPM
         // for short sessions — this fallback covers the PHP observer path (no JS snapshots)
         // and the rare case where blur fired but the snapshot payload was 0.
-        if ($averagewpm <= 0.0 && $typingtime > 0 && $finaltext !== '') {
+        // FIX-EG-WPM-NONSENSE (v1.2.234): this fallback divides the FINAL TEXT word
+        // count by the measured typing time, which is only meaningful if the text was
+        // actually typed. On a paste session the text arrives whole while typing time
+        // is a fraction of a second, and the division produced figures like
+        // "Avg WPM: 17,818.5" on a teacher-facing report — a number that destroys
+        // confidence in every other figure beside it.
+        //
+        // The fallback now requires evidence that typing occurred: at least five
+        // keystrokes, at least five seconds of typing time, and a result inside the
+        // range of a human typist. Otherwise average WPM stays 0 and the display
+        // layer reports it as not measurable.
+        $wpmfallbackok = ($totalkeystrokes >= 5) && ($typingtime >= 5000);
+        if ($averagewpm <= 0.0 && $wpmfallbackok && $finaltext !== '') {
             $wordcount = preg_match_all('/\b\w+\b/', strip_tags($finaltext));
             if ($wordcount > 0) {
                 $typingminutes = $typingtime / 60000.0;
                 if ($typingminutes > 0) {
-                    $averagewpm = round($wordcount / $typingminutes, 2);
+                    $candidatewpm = round($wordcount / $typingminutes, 2);
+                    // 300 wpm is beyond the fastest recorded human typists; anything
+                    // above it is an artefact of the division, not a measurement.
+                    if ($candidatewpm > 0 && $candidatewpm <= 300.0) {
+                        $averagewpm = $candidatewpm;
+                    }
                 }
             }
         }
@@ -689,8 +802,13 @@ class analyser {
                 $thinkingpausecount++;
             }
         }
-        $thinkingpausescore = $pausecount > 0
-            ? $thinkingpausecount / max(1, count($pausesall))
+        // FIX-EG-THINKING-PAUSE-GATE (v1.3.0): this counted pauses of 800-2000 ms and
+        // then gated the result on $pausecount, which only counts pauses OVER 2000 ms.
+        // A student with many short thinking pauses and no long ones had the metric
+        // forced to 0.0 — zeroed in exactly the case it exists to describe. The gate is
+        // now on having observed any pause at all.
+        $thinkingpausescore = !empty($pausesall)
+            ? $thinkingpausecount / count($pausesall)
             : 0.0;
 
         // Linguistic metrics (if available).
@@ -740,6 +858,10 @@ class analyser {
             'pausecount'             => $pausecount,
             'pause_count'            => $pausecount,
             'longpauses'             => $longpauses,
+            // FIX-EG-NO-DATA-HONESTY (v1.2.234): how many events this score was
+            // actually computed from. Without it, a slot that captured nothing is
+            // indistinguishable from a slot that captured a fast clean typist.
+            'event_count'            => count($events),
             'typing_time'            => $typingtime,
             'idle_time'              => $idletime,
             'average_wpm'            => round($averagewpm, 2),
@@ -1032,12 +1154,20 @@ class analyser {
                         $signalpts[1] = $s1;
                     }
                 } else {
-                    // Paste detected but size unknown (TinyMCE clipboard unreadable) or
-                    // no finaltext: conservative full signal.
-                    // PASTE-WEIGHT (v1.2.212): scale by admin-configured multiplier.
-                    $s1 = (int)round(60 * $pasteweight);
+                    // FIX-EG-UNKNOWN-PASTE-SIZE (v1.3.0): a paste whose size could not be
+                    // read is worth the MEDIUM floor, not the full HIGH award.
+                    //
+                    // insertlen is 0 whenever the browser refuses the clipboard read,
+                    // which is the ordinary case inside a cross-origin TinyMCE iframe —
+                    // i.e. the most common editor configuration, not an edge case. The
+                    // old comment called awarding the full 60 "conservative"; it is the
+                    // opposite. Unknown magnitude resolving to maximum penalty meant a
+                    // two-word paste and a whole pasted essay were scored identically,
+                    // on no evidence of size at all.
+                    $s1 = (int)round(30 * $pasteweight);
                     $score += $s1;
                     $signalpts[1] = $s1;
+                    $metrics['paste_size_unknown'] = true;
                 }
             }
 
@@ -1211,6 +1341,45 @@ class analyser {
             }
 
             // ----------------------------------------------------------------
+            // FIX-EG-PASTE-NOT-COUNTED-SIX-TIMES (v1.3.0)
+            //
+            // In a paste session Signals 3, 4, 5, 6 and 7 are not independent evidence.
+            // They are five more descriptions of the same single paste: of course there
+            // were no corrections, no thinking pauses and no typing rhythm — nobody
+            // typed. The code already said so in a comment; it then scaled them by
+            // paste_weight (default 1.0, i.e. no mitigation) and added all five anyway.
+            //
+            // The arithmetic that produced: pre-cap 160 for a 120-character paste and
+            // pre-cap 160 for an 8,000-word pasted essay, both displayed as 100/100 with
+            // 60 points of invisible headroom above the ceiling. A teacher reading the
+            // breakdown saw a total that exceeded the scale it was printed on, and the
+            // only band the product claims authority over had no gradation at all.
+            //
+            // The paste itself (Signal 1) carries the finding. Its corroborating
+            // descriptions are collectively capped, so the total stays inside the scale
+            // and the magnitude of the paste is what moves the number.
+            if ($ispastesession) {
+                $derivedkeys  = [3, 4, 5, 6, 7];
+                $derivedtotal = 0;
+                foreach ($derivedkeys as $dk) {
+                    $derivedtotal += (int)($signalpts[$dk] ?? 0);
+                }
+                if ($derivedtotal > self::PASTE_DERIVED_CAP) {
+                    $scale = self::PASTE_DERIVED_CAP / $derivedtotal;
+                    foreach ($derivedkeys as $dk) {
+                        if (!isset($signalpts[$dk])) {
+                            continue;
+                        }
+                        $was = (int)$signalpts[$dk];
+                        $now = (int)round($was * $scale);
+                        $signalpts[$dk] = $now;
+                        $score -= ($was - $now);
+                    }
+                    $metrics['paste_derived_capped'] = true;
+                }
+            }
+
+            // ----------------------------------------------------------------
             // SIGNAL 8: Linguistic — sentence length uniformity (max 10 pts)
             //
             // FIX-EG-S8-DEDUP (v1.2.124): Gated with !$events_empty_for_scoring.
@@ -1373,7 +1542,16 @@ class analyser {
             // Multiple uniform sentences (variance 1–5.9)  → count >= 1 AND < 6.0     → +20 ✓
             // Multiple varied sentences (variance ≥ 6.0)   → count >= 1 AND >= 6.0    →   0 ✓
             // No text parsed (count = 0, variance = 0.0)   → count = 0                →   0 ✓.
-            if ($sentencecountling >= 1 && $sentencevariance < 6.0) {
+            // FIX-EG-SINGLE-SENTENCE-TAUTOLOGY (v1.3.0): a one-sentence answer is not
+            // "perfectly uniform", it is a sample of one. Variance is undefined on a
+            // single data point, and the v1.2.140 reasoning above converted *undefined*
+            // into *maximally suspicious* — awarding the full uniformity penalty to any
+            // short answer with one sentence, then telling the teacher "sentence lengths
+            // are unusually uniform throughout the submission". Said about a single
+            // sentence, in front of an appeal panel, that is indefensible.
+            //
+            // At least three sentences are now required before uniformity means anything.
+            if ($sentencecountling >= 3 && $sentencevariance > 0.0 && $sentencevariance < 6.0) {
                 $score += 20;
                 $linguisticfallbackpts += 20;
             }
@@ -1488,6 +1666,113 @@ class analyser {
             }
         }
 
+        // ----------------------------------------------------------------
+        // SIGNAL 14: Transition density (max 10 pts, textual corroboration)
+        //
+        // CLAIM-EG-TRANSITION (v1.4.0). Discourse markers per 100 words. Generated prose
+        // signposts its own structure far more heavily than most student writing:
+        // however, furthermore, moreover, in addition, consequently. Measured on a
+        // deliberately marker-heavy generated sample this reads 16.7; on an unstructured
+        // human sample, 0.0.
+        //
+        // This is a property of the TEXT, not of the student. An ESL writer taught to
+        // signpost, and a VET answer written to a template the training package asks
+        // for, both look like this. It is corroboration and is capped as such below.
+        // ----------------------------------------------------------------
+        $transitiondensity = (float)($linguistic['transition_density'] ?? 0.0);
+        if (!$eventsemptyforscoring && $transitiondensity > 0.0) {
+            if ($transitiondensity >= 10.0) {
+                $score += 10;
+                $signalpts[14] = 10;
+            } else if ($transitiondensity >= 6.0) {
+                $score += 5;
+                $signalpts[14] = 5;
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // SIGNAL 15: Paragraph uniformity (max 10 pts, textual corroboration)
+        //
+        // CLAIM-EG-PARAGRAPH (v1.4.0). Sentence variance one level up. Generated prose
+        // tends to arrive in evenly sized blocks; a written draft has a short opener, a
+        // long middle and an uneven tail. Requires at least three paragraphs — variance
+        // across two is not a measurement, and the single-sentence tautology this engine
+        // used to commit is not repeated here.
+        // ----------------------------------------------------------------
+        $paragraphcount    = (int)($linguistic['paragraph_count'] ?? 0);
+        $paragraphvariance = (float)($linguistic['paragraph_variance'] ?? 0.0);
+        if (!$eventsemptyforscoring && $paragraphcount >= 3 && $paragraphvariance > 0.0) {
+            if ($paragraphvariance < 8.0) {
+                $score += 10;
+                $signalpts[15] = 10;
+            } else if ($paragraphvariance < 20.0) {
+                $score += 5;
+                $signalpts[15] = 5;
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // SIGNAL 16: Transcription pattern (max 15 pts, behavioural)
+        //
+        // CLAIM-EG-TRANSCRIPTION (v1.4.0). The README used to claim detection of AI text
+        // "manually retyped". Nothing could do that, and nothing can: if a person types
+        // the words, they were typed. What IS observable is whether the typing looks like
+        // COMPOSITION or like TRANSCRIPTION — and the honest limit of that observation is
+        // that it cannot tell you what was being transcribed. A student copying from
+        // their own handwritten notes produces the same pattern as one copying from a
+        // chatbot. The signal is named for what it measures and the teacher draws the
+        // inference.
+        //
+        // Three things together, never one alone:
+        //   - the student repeatedly left the window and came back (reading a source),
+        //   - with almost no revision (transcribers do not rewrite),
+        //   - at a steady rhythm (composition speeds up and slows down with thought).
+        // ----------------------------------------------------------------
+        $meanblurgap = !empty($blurgaps) ? array_sum($blurgaps) / count($blurgaps) : 0.0;
+        if (
+            !$eventsemptyforscoring
+                && $pastecount === 0
+                && $focusreturns >= 4
+                && $totalkeystrokes >= 100
+                && $backspaceratio < 0.02
+                && $hasrhythmdata
+                && $ikishannon > 0.0
+                && $ikishannon < 0.50
+        ) {
+            $score += 15;
+            $signalpts[16] = 15;
+            $metrics['transcription_focus_returns'] = $focusreturns;
+        }
+
+        // CLAIM-EG-TEXTUAL-CAP (v1.4.0): bound what the text-style signals can do.
+        //
+        // Signals 8, 9, 14 and 15 all describe the prose rather than the person, and the
+        // innocent explanations for them — an ESL writer, a formal house style, a
+        // templated VET answer — are at least as common as the guilty one. Together they
+        // could otherwise reach 35 points and carry a submission past the medium
+        // threshold on style alone. They are capped below it: they can corroborate a
+        // behavioural finding, never manufacture one.
+        $textualkeys  = \plagiarism_essayguard\local\signals::in_class(
+            \plagiarism_essayguard\local\signals::EVIDENCE_TEXTUAL
+        );
+        $textualtotal = 0;
+        foreach ($textualkeys as $tk) {
+            $textualtotal += (int)($signalpts[$tk] ?? 0);
+        }
+        if ($textualtotal > \plagiarism_essayguard\local\signals::TEXTUAL_CAP) {
+            $scale = \plagiarism_essayguard\local\signals::TEXTUAL_CAP / $textualtotal;
+            foreach ($textualkeys as $tk) {
+                if (!isset($signalpts[$tk])) {
+                    continue;
+                }
+                $was = (int)$signalpts[$tk];
+                $now = (int)round($was * $scale);
+                $signalpts[$tk] = $now;
+                $score -= ($was - $now);
+            }
+            $metrics['textual_capped'] = true;
+        }
+
         // FIX-EG-TYPING-FALSE-POSITIVE (v1.2.111 / updated v1.2.112): Signal 4 (no long
         // pauses, +20 pts) and Signal 5 (low backspace ratio, +15 pts) together total 35 pts
         // which exceeds the MEDIUM boundary (30 under v1.2.112 TypeShield-aligned thresholds),
@@ -1541,10 +1826,32 @@ class analyser {
         // rhythm had been measured at all. With enough samples, 0.0 is now the strongest
         // evidence against capping, not a reason for it. See
         // FIX-EG-CONSTANT-RHYTHM-READS-LOW above.
+        // FIX-EG-CAP-WITHHELD-FROM-CONSISTENT-TYPISTS (v1.3.0)
+        //
+        // The old condition `(!$hasrhythmdata || $entropy_score >= 0.30)` withheld the
+        // protection from any session whose entropy was below 0.30, and entropy_from_sd()
+        // only reaches 0.30 at an inter-key standard deviation of 100 ms or more. A
+        // fluent touch typist has an SD around 45 ms — the plugin's own honest-typist
+        // test fixture measures 44.1 ms. So the safeguard written to protect honest
+        // typists was denied to precisely the ones who needed it: the more even your
+        // typing, the less protected you were. That is how a fast typist with no paste
+        // and no corrections reached MEDIUM.
+        //
+        // Rhythm is now judged by the Shannon measure, which after
+        // FIX-EG-SHANNON-NORMALISATION actually separates humans from machines
+        // (measured: human profiles 0.42-0.87, scripted input 0.00-0.29). Low Shannon
+        // entropy with enough samples is real evidence of automation and still lifts
+        // the cap; an ordinary consistent typist no longer loses it.
+        $rhythmlooksautomated = $hasrhythmdata
+            && $ikishannon > 0.0
+            && $ikishannon < 0.35;
+        $rhythmperfectlyflat  = $hasrhythmdata && $ikishannon === 0.0;
+
         if (
             $pastecount === 0 && $largeinserts === 0 && !$eventsemptyforscoring
                 && $charspersec <= 12.0
-                && (!$hasrhythmdata || $entropyscore >= 0.30)
+                && !$rhythmlooksautomated
+                && !$rhythmperfectlyflat
         ) {
             // V1.2.224: capture the pre-cap score. This interpolated $score AFTER the
             // assignment above, so the message always read "capped at 29 (was 29)" - the
@@ -1564,13 +1871,43 @@ class analyser {
 
         $score = max(0.0, min(100.0, $score));
 
-        /* --- Baseline deviation (adds up to 15 pts extra) --- */
-        $baselinedeviation = fingerprint::deviation_score($userid, $metrics);
+        /* --- Comparative scoring against the student's own pattern (v1.4.0) --- */
+        //
+        // BASELINE-EG-WELFORD: this is the claim the product has always made and never
+        // implemented. The old code compared a point estimate against a fixed +/-50 %
+        // tolerance identical for every student and every metric — which cannot
+        // distinguish a genuine anomaly from a student whose typing speed simply moves
+        // 50 % week to week. Deviation is now a z-score in that student's own standard
+        // deviations, for that metric, in that kind of activity, and it reports nothing
+        // at all until at least three metrics have eight samples behind them.
+        $egcomparative     = fingerprint::comparative_deviation($userid, $egcontexttype, $metrics);
+        $egconfidence      = fingerprint::confidence($userid, $egcontexttype);
+        $baselinedeviation = (float)$egcomparative['deviation'];
+        $baselinestatus    = $egconfidence['status'];
         $baselinefp        = fingerprint::get($userid);
-        $baselinestatus    = $baselinefp ? $baselinefp->baseline_status : 'none';
 
-        if ($baselinedeviation > 0.3) {
+        $metrics['baseline_contexttype'] = $egcontexttype;
+        $metrics['baseline_metrics']     = (int)$egcomparative['metrics'];
+        $metrics['baseline_samples']     = (int)$egconfidence['samples'];
+        $metrics['baseline_drivers']     = $egcomparative['drivers'];
+        $metrics['baseline_detail']      = $egcomparative['detail'];
+
+        // FIX-EG-BASELINE-GATE (v1.3.0): only compare a student against their own
+        // history once that history exists.
+        //
+        // deviation_score() had no sample-count gate, so points were awarded from the
+        // student's SECOND submission onward. The student page then printed, on one
+        // screen, "Baseline Confidence: No baseline yet" and "Baseline deviation bonus
+        // +13 — deviates significantly from this student's baseline". Asked "what
+        // baseline?", the report answered "none" and "significant deviation from it"
+        // simultaneously. The bonus also applied AFTER the false-positive cap, so it
+        // was the one route by which a capped honest typist became MEDIUM.
+        if ($baselinedeviation > 0.3 && $baselinestatus === fingerprint::STATUS_STABLE) {
             $score = min(100.0, $score + ($baselinedeviation * 15));
+            $metrics['baseline_points'] = (int)round($baselinedeviation * 15);
+        } else {
+            $baselinedeviation = 0.0;
+            $metrics['baseline_points'] = 0;
         }
 
         // V1.2.113: Persist per-signal breakdown so student.php can show a
@@ -1626,16 +1963,39 @@ class analyser {
         // (so an empty answer is still legitimately low-risk) and NOTHING was captured by
         // any route - no events, no keystrokes, no paste, no large insert, and no
         // server-side timing signal. If any signal fired, the score stands as scored.
+        // FIX-EG-UNMEASURED-DOMINANT (v1.3.0): the `empty($signalpts)` requirement
+        // defeated this guard in the exact case it was written for.
+        //
+        // Signal 13 and the linguistic fallback both fire SPECIFICALLY when no events
+        // were captured. Either one populates $signal_pts, so the honesty flag was
+        // suppressed and the attempt was reported as a genuine finding. A quiz where
+        // the tracker never loaded — the plugin's own notes record a live site where
+        // two unrelated plugins broke the AMD bundle — and where the student types at
+        // 60-120 wpm scored MEDIUM or HIGH on the strength of having typed quickly
+        // into a page nobody was watching.
+        //
+        // "We did not observe this student" is not evidence of anything. When no
+        // behavioural event was captured, nothing is reported: no score, no signals,
+        // no explanations. The display layer shows it as NOT ASSESSED.
         $nothingmeasured = ($textchars > 0)
-            && empty($allevents)
+            && empty($events)
             && $totalkeystrokes === 0
             && $pastecount === 0
-            && $largeinserts === 0
-            && empty($signalpts);
+            && $largeinserts === 0;
 
         if ($nothingmeasured) {
             $risklevel = 'unmeasured';
             $metrics['nothing_measured'] = true;
+            // Discard anything the text-only fallbacks contributed. They are inferences
+            // about prose style, not observations of this student's behaviour, and they
+            // must not reach a teacher as a risk score.
+            $score100  = 0;
+            $riskscore = 0.0;
+            $score     = 0.0;
+            $signalpts = [];
+            $metrics['signal_breakdown']        = [];
+            $metrics['linguistic_fallback_pts'] = 0;
+            $metrics['score100']                = 0;
         }
 
         // FIX-EG-METRICS-SCORE100 (v1.2.124): Persist the final capped score100 so
@@ -1971,8 +2331,24 @@ class analyser {
             $p        = $c / $n;
             $entropy -= $p * log($p, 2);
         }
-        $bucketcount = count($counts);
-        $maxentropy  = $bucketcount > 1 ? log($bucketcount, 2) : 0.0;
+        // FIX-EG-SHANNON-NORMALISATION (v1.3.0): normalise against a FIXED reference,
+        // not against the number of buckets this sample happened to occupy.
+        //
+        // Dividing by log2(observed buckets) makes the result approach 1.0 for any
+        // near-uniform distribution regardless of how narrow its spread is, which is
+        // the opposite of what the signal needs to measure. Measured over 200 samples,
+        // the old formula gave 0.972 for a human typing at 140±50 ms and 0.986 for a
+        // bot at 100 ms ±3 ms — the bot scored HIGHER. With a threshold of 0.35 the
+        // signal was unreachable by anything real, and the SD-based branch below it
+        // was dead code for any session with rhythm data. The engine had no working
+        // automation detector while reporting "Robotic keystroke entropy" to teachers.
+        //
+        // The fixed reference is the bucket range a human typist spans: inter-key
+        // intervals from 0 to 1,000 ms in 20 ms bands = 50 buckets. A tightly
+        // clustered machine rhythm now occupies few of those and scores low; ordinary
+        // human variation occupies many and scores high.
+        $referencebuckets = max(2, (int)ceil(1000 / max(1, $bandms)));
+        $maxentropy       = log($referencebuckets, 2);
         return $maxentropy > 0 ? min(1.0, $entropy / $maxentropy) : 0.0;
     }
 

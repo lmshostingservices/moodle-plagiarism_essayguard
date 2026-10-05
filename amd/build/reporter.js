@@ -31,7 +31,7 @@
  * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/ajax'], function(Ajax) {
+define('plagiarism_essayguard/reporter', ['core/ajax'], function(Ajax) {
     'use strict';
 
     // v1.2.112: Thresholds and key names aligned with TypeShield LTI.

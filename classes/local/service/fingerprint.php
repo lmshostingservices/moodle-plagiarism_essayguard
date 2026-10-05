@@ -54,6 +54,58 @@ class fingerprint {
     const STABLE_THRESHOLD = 5;
 
     /**
+     * Samples required before a metric's own variance is trusted for comparison.
+     *
+     * BASELINE-EG-WELFORD (v1.4.0). Five samples give a usable mean but a poor variance
+     * estimate, and the whole point of this rework is to judge a deviation against the
+     * student's own spread rather than a fixed percentage. Eight is the point at which
+     * the standard deviation stops swinging wildly with each new submission. Below it the
+     * metric contributes nothing rather than contributing noise.
+     *
+     * @var int
+     */
+    const MIN_SAMPLES_FOR_Z = 8;
+
+    /**
+     * Metrics with enough samples required before any comparative score is reported.
+     *
+     * One metric crossing a threshold is an anecdote. The comparison is only meaningful
+     * when several independent measurements of the same student agree.
+     *
+     * @var int
+     */
+    const MIN_METRICS_FOR_SCORE = 3;
+
+    /** @var float Deviations below this many standard deviations score nothing. */
+    const Z_FLOOR = 2.0;
+
+    /** @var float Deviation at which a metric contributes its full weight. */
+    const Z_CEILING = 4.0;
+
+    /**
+     * The metrics tracked per student, mapped to their key in the metrics array.
+     *
+     * Each is a property of HOW the student writes rather than what they wrote, and each
+     * is measured the same way on every submission. Values that are structurally absent
+     * (a zero because nothing was captured, rather than a measured zero) are rejected by
+     * sample_is_usable() before they reach the running statistics.
+     *
+     * @var string[]
+     */
+    const TRACKED_METRICS = [
+        'wpm'                => 'average_wpm',
+        'pause_mean'         => 'pause_mean',
+        'backspace_ratio'    => 'backspace_ratio',
+        'burst_mean'         => 'burst_mean',
+        'sentence_variance'  => 'sentence_variance',
+        'vocab_diversity'    => 'vocab_diversity',
+        'entropy'            => 'entropy_score',
+        'interkey_mean'      => 'interkey_mean',
+        'transition_density' => 'transition_density',
+        'paragraph_variance' => 'paragraph_variance',
+    ];
+
+    /**
      * Update the student fingerprint with metrics from the latest submission.
      * Metrics array must contain all behavioural keys (wpm, pause_mean, etc.).
      *
@@ -182,6 +234,266 @@ class fingerprint {
         ];
 
         $DB->update_record('plagiarism_essayguard_fp', $record);
+    }
+
+
+    /**
+     * Fold one submission's metrics into the student's running per-metric statistics.
+     *
+     * BASELINE-EG-WELFORD (v1.4.0). Welford's online algorithm keeps a running mean and
+     * sum of squared deviations (M2) in constant space and without the catastrophic
+     * cancellation of the naive sum-of-squares form, so the standard deviation is
+     * available at any time without storing the samples.
+     *
+     * Statistics are partitioned by activity type. A quiz essay is written under time
+     * pressure in short bursts; an assignment is drafted at leisure. Blending the two
+     * into one distribution inflates the variance until nothing can ever deviate from it,
+     * which is the quiet way a comparative signal stops working.
+     *
+     * @param int    $userid      The student.
+     * @param string $contexttype Activity type: quiz, assign, forum or other.
+     * @param array  $metrics     The metrics measured for this submission.
+     * @return void
+     */
+    public static function update_statistics(int $userid, string $contexttype, array $metrics): void {
+        global $DB;
+
+        $contexttype = self::normalise_context_type($contexttype);
+        $now         = time();
+
+        foreach (self::TRACKED_METRICS as $name => $metrickey) {
+            if (!self::sample_is_usable($metrickey, $metrics)) {
+                continue;
+            }
+            $value = (float)$metrics[$metrickey];
+
+            $row = $DB->get_record('plagiarism_essayguard_fpm', [
+                'userid'      => $userid,
+                'contexttype' => $contexttype,
+                'metricname'  => $name,
+                ]);
+
+            if (!$row) {
+                // Insert-and-recover against the unique index: two scoring passes for the
+                // same student can race here exactly as they can on the fingerprint row.
+                try {
+                    $DB->insert_record('plagiarism_essayguard_fpm', (object)[
+                        'userid'       => $userid,
+                        'contexttype'  => $contexttype,
+                        'metricname'   => $name,
+                        'samplen'      => 1,
+                        'runmean'      => $value,
+                        'runm2'        => 0,
+                        'timemodified' => $now,
+                        ]);
+                    continue;
+                } catch (\dml_write_exception $e) {
+                    $row = $DB->get_record('plagiarism_essayguard_fpm', [
+                        'userid'      => $userid,
+                        'contexttype' => $contexttype,
+                        'metricname'  => $name,
+                        ]);
+                    if (!$row) {
+                        throw $e;
+                    }
+                }
+            }
+
+            // Welford update.
+            $n     = (int)$row->samplen + 1;
+            $mean  = (float)$row->runmean;
+            $delta = $value - $mean;
+            $mean += $delta / $n;
+            $m2    = (float)$row->runm2 + $delta * ($value - $mean);
+
+            $DB->update_record('plagiarism_essayguard_fpm', (object)[
+                'id'           => $row->id,
+                'samplen'      => $n,
+                'runmean'      => round($mean, 6),
+                'runm2'        => round($m2, 6),
+                'timemodified' => $now,
+                ]);
+        }
+    }
+
+    /**
+     * How far this submission sits from the student's own established pattern.
+     *
+     * BASELINE-EG-WELFORD (v1.4.0). This replaces a fixed proportional tolerance — 50 %
+     * for most metrics, identical for every student — with a z-score measured in that
+     * student's own standard deviations for that metric in that kind of activity.
+     *
+     * A metric contributes nothing until it has MIN_SAMPLES_FOR_Z samples behind it, and
+     * nothing is reported at all until MIN_METRICS_FOR_SCORE metrics qualify, so a new
+     * student is never compared against a distribution that does not exist yet.
+     *
+     * @param int    $userid      The student.
+     * @param string $contexttype Activity type the current submission belongs to.
+     * @param array  $metrics     The metrics measured for this submission.
+     * @return array {
+     *     @var float    deviation  0.0-1.0 combined departure from the student's pattern.
+     *     @var int      metrics    How many metrics were comparable.
+     *     @var string[] drivers    Metric names that exceeded the floor, worst first.
+     *     @var array    detail     Per-metric z-scores, for the teacher-facing breakdown.
+     * }
+     */
+    public static function comparative_deviation(int $userid, string $contexttype, array $metrics): array {
+        global $DB;
+
+        $empty = ['deviation' => 0.0, 'metrics' => 0, 'drivers' => [], 'detail' => []];
+
+        $contexttype = self::normalise_context_type($contexttype);
+        $rows = $DB->get_records('plagiarism_essayguard_fpm', [
+            'userid'      => $userid,
+            'contexttype' => $contexttype,
+            ]);
+        if (empty($rows)) {
+            return $empty;
+        }
+
+        $scores  = [];
+        $detail  = [];
+        foreach ($rows as $row) {
+            $name = $row->metricname;
+            if (!isset(self::TRACKED_METRICS[$name])) {
+                continue;
+            }
+            $metrickey = self::TRACKED_METRICS[$name];
+            if (!self::sample_is_usable($metrickey, $metrics)) {
+                continue;
+            }
+            $n = (int)$row->samplen;
+            if ($n < self::MIN_SAMPLES_FOR_Z) {
+                continue;
+            }
+
+            $sd = sqrt(max(0.0, (float)$row->runm2) / max(1, $n - 1));
+            $mean = (float)$row->runmean;
+
+            // A student who is genuinely metronomic produces a near-zero standard
+            // deviation, and dividing by it would turn any trivial change into an
+            // enormous z. Floor the spread at 5 % of the mean (or a small absolute
+            // value when the mean itself is near zero) so consistency cannot
+            // manufacture a deviation.
+            $floor = max(abs($mean) * 0.05, 1e-6);
+            $sd    = max($sd, $floor);
+
+            $z = abs((float)$metrics[$metrickey] - $mean) / $sd;
+
+            $contribution = 0.0;
+            if ($z > self::Z_FLOOR) {
+                $contribution = min(1.0, ($z - self::Z_FLOOR) / (self::Z_CEILING - self::Z_FLOOR));
+            }
+
+            $scores[$name] = $contribution;
+            $detail[$name] = [
+                'z'        => round($z, 2),
+                'mean'     => round($mean, 4),
+                'sd'       => round($sd, 4),
+                'observed' => round((float)$metrics[$metrickey], 4),
+                'n'        => $n,
+                ];
+        }
+
+        if (count($scores) < self::MIN_METRICS_FOR_SCORE) {
+            return $empty;
+        }
+
+        arsort($scores);
+        $drivers = [];
+        foreach ($scores as $name => $value) {
+            if ($value > 0.0) {
+                $drivers[] = $name;
+            }
+        }
+
+        return [
+            'deviation' => min(1.0, array_sum($scores) / count($scores)),
+            'metrics'   => count($scores),
+            'drivers'   => $drivers,
+            'detail'    => $detail,
+            ];
+    }
+
+    /**
+     * Whether this submission's value for a metric is a measurement or an absence.
+     *
+     * A zero that means "nothing was captured" must never enter the statistics: three
+     * such submissions used to leave a student with a confident baseline at roughly 42 %
+     * of their true speed, after which typing normally read as a large deviation. The
+     * students that hits hardest are the ones whose devices the tracker works worst on.
+     *
+     * @param string $metrickey Key in the metrics array.
+     * @param array  $metrics   The metrics measured for this submission.
+     * @return bool True when the value is a real measurement.
+     */
+    private static function sample_is_usable(string $metrickey, array $metrics): bool {
+        if (!array_key_exists($metrickey, $metrics)) {
+            return false;
+        }
+        if ((int)($metrics['total_keystrokes'] ?? 0) <= 0) {
+            return false;
+        }
+        $value = (float)$metrics[$metrickey];
+        if (!is_finite($value)) {
+            return false;
+        }
+        // Every tracked metric is strictly positive when it was genuinely measured.
+        return $value > 0.0;
+    }
+
+    /**
+     * Collapse a Moodle module name onto the activity types the baseline partitions by.
+     *
+     * @param string $modname The activity type name, e.g. "quiz".
+     * @return string One of quiz, assign, forum or other.
+     */
+    public static function normalise_context_type(string $modname): string {
+        $known = ['quiz', 'assign', 'forum'];
+        return in_array($modname, $known, true) ? $modname : 'other';
+    }
+
+    /**
+     * Baseline confidence for this student in this kind of activity.
+     *
+     * Reported from the per-metric sample counts rather than a single counter, so the
+     * label describes the statistics actually available for comparison.
+     *
+     * @param int    $userid      The student.
+     * @param string $contexttype Activity type.
+     * @return array {
+     *     @var string status  none, preliminary or stable.
+     *     @var int    metrics  How many metrics have enough samples to compare.
+     *     @var int    samples  Samples behind the best-established metric.
+     * }
+     */
+    public static function confidence(int $userid, string $contexttype): array {
+        global $DB;
+
+        $contexttype = self::normalise_context_type($contexttype);
+        $rows = $DB->get_records('plagiarism_essayguard_fpm', [
+            'userid'      => $userid,
+            'contexttype' => $contexttype,
+            ]);
+
+        $qualifying = 0;
+        $best       = 0;
+        foreach ($rows as $row) {
+            $n = (int)$row->samplen;
+            $best = max($best, $n);
+            if ($n >= self::MIN_SAMPLES_FOR_Z) {
+                $qualifying++;
+            }
+        }
+
+        $status = self::STATUS_NONE;
+        if ($qualifying >= self::MIN_METRICS_FOR_SCORE) {
+            $status = self::STATUS_STABLE;
+        } else if ($best >= self::PRELIM_THRESHOLD) {
+            $status = self::STATUS_PRELIM;
+        }
+
+        return ['status' => $status, 'metrics' => $qualifying, 'samples' => $best];
     }
 
     /**

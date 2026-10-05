@@ -37,6 +37,20 @@ class explainer {
      * @return array  Array of explanation strings
      */
     public static function explain(array $metrics, string $risklevel, ?object $baseline = null): array {
+        // FIX-EG-UNMEASURED-EXPLANATION (v1.3.0): say the one true thing.
+        //
+        // There was no 'unmeasured' branch at all, so an attempt where nothing was
+        // captured fell through to the generic tail below and stored: "This submission
+        // was flagged by the combined behavioural and linguistic checks, but no
+        // individual indicator was distinct enough to describe on its own." That
+        // sentence was written into explanationsjson and rendered to teachers under the
+        // heading "Indicators" — the plugin asserting that a submission was flagged by
+        // checks that never ran. Put in front of an appeal panel as the written basis of
+        // an allegation, it ends the matter.
+        if ($risklevel === 'unmeasured' || !empty($metrics['nothing_measured'])) {
+            return [get_string('explain_unmeasured', 'plagiarism_essayguard')];
+        }
+
         $explanations = [];
 
         // Paste events.
@@ -286,69 +300,39 @@ class explainer {
         // and a component that is simply absent should mean "no baseline to compare
         // against" rather than an undefined-property warning rendered into a teacher's
         // report page.
-        if ($baseline !== null) {
-            $baselinewpm = (float)($baseline->baseline_wpm ?? 0);
-            $currentwpm  = (float)($metrics['average_wpm'] ?? 0);
-            if ($baselinewpm > 0 && $currentwpm > 0) {
-                $wpmratio = $currentwpm / $baselinewpm;
-                if ($wpmratio > 1.8) {
-                    $explanations[] = get_string(
-                        'explain_fasterthanbaseline',
-                        'plagiarism_essayguard',
-                        ['baseline' => round($baselinewpm), 'current' => round($currentwpm)]
-                    );
-                }
-            }
+        // BASELINE-EG-WELFORD (v1.4.0): explain the comparison that actually scored.
+        //
+        // The old rules compared the submission against point estimates using their own
+        // hand-written tolerances — 1.8x for speed, 0.3 for rhythm, 0.5 for pauses — which
+        // were a second, independent copy of the scoring logic and drifted from it. They
+        // also fired whether or not the comparison had contributed anything, so a student
+        // could be told their writing "departs from their own baseline" when no baseline
+        // existed. Explanations now come from the same z-scores the score came from, and
+        // appear only for the metrics that actually passed the floor.
+        $detail  = (array)($metrics['baseline_detail'] ?? []);
+        $drivers = (array)($metrics['baseline_drivers'] ?? []);
+        $samples = (int)($metrics['baseline_samples'] ?? 0);
 
-            $blbackspace = (float)($baseline->baseline_backspace_ratio ?? 0);
-            if ($blbackspace > 0.05 && $backspaceratio < 0.02) {
-                $explanations[] = get_string('explain_backspacebelowbaseline', 'plagiarism_essayguard');
+        foreach ($drivers as $metricname) {
+            if (!isset($detail[$metricname])) {
+                continue;
             }
-
-            $blsv = (float)($baseline->baseline_sentence_variance ?? 0);
-            if ($blsv > 15 && $sentencevariance > 0 && $sentencevariance < 8) {
-                $explanations[] = get_string('explain_uniformvsbaseline', 'plagiarism_essayguard');
+            $d = $detail[$metricname];
+            $stringkey = 'explain_zdev_' . $metricname;
+            if (!self::string_exists($stringkey)) {
+                continue;
             }
-
-            // V1.2.225 FIX-EG-BASELINE-UNEXPLAINED: fingerprint::deviation_score() averages
-            // FIVE components for up to +15 points - words per minute, backspace ratio,
-            // sentence variance, typing-rhythm entropy and mean pause length - and only the
-            // first three had a rule here. A student whose rhythm or pausing had shifted
-            // sharply from their own established baseline was scored for it and told
-            // nothing about it, which is the worst version of this defect: the comparison
-            // is against the student's own past work, so it is both the most persuasive
-            // evidence the plugin produces and the hardest for a teacher to guess at.
-            //
-            // The thresholds mirror deviation_score()'s own tolerances (0.3 for entropy,
-            // 0.5 for pause mean), so a sentence appears when and only when that component
-            // actually contributed.
-            $blentropy = (float)($baseline->baseline_entropy ?? 0);
-            $curentropy = (float)($metrics['entropy_score'] ?? 0);
-            if (
-                $blentropy > 0 && $curentropy > 0
-                    && abs($curentropy - $blentropy) / $blentropy > 0.3
-            ) {
-                $explanations[] = get_string(
-                    $curentropy < $blentropy
-                        ? 'explain_rhythmvsbaseline_smoother'
-                        : 'explain_rhythmvsbaseline_rougher',
-                    'plagiarism_essayguard'
-                );
-            }
-
-            $blpause = (float)($baseline->baseline_pause_mean ?? 0);
-            $curpause = (float)($metrics['pause_mean'] ?? 0);
-            if (
-                $blpause > 0 && $curpause > 0
-                    && abs($curpause - $blpause) / $blpause > 0.5
-            ) {
-                $explanations[] = get_string(
-                    $curpause < $blpause
-                        ? 'explain_pausevsbaseline_shorter'
-                        : 'explain_pausevsbaseline_longer',
-                    'plagiarism_essayguard'
-                );
-            }
+            $explanations[] = get_string(
+                $stringkey,
+                'plagiarism_essayguard',
+                (object)[
+                    'observed' => self::format_number((float)($d['observed'] ?? 0)),
+                    'usual'    => self::format_number((float)($d['mean'] ?? 0)),
+                    'z'        => self::format_number((float)($d['z'] ?? 0), 1),
+                    'n'        => (int)($d['n'] ?? 0),
+                    'samples'  => $samples,
+                    ]
+            );
         }
 
         // Positive signal — no concerns when clearly clean (low risk, no specific flags).
@@ -390,5 +374,30 @@ class explainer {
         }
 
         return $explanations;
+    }
+
+    /**
+     * Whether a language string is defined, without emitting a debugging notice.
+     *
+     * @param string $key The string identifier.
+     * @return bool True when the string exists for this plugin.
+     */
+    private static function string_exists(string $key): bool {
+        $manager = \get_string_manager();
+        return $manager->string_exists($key, 'plagiarism_essayguard');
+    }
+
+    /**
+     * Render a measurement for a teacher, without spurious precision.
+     *
+     * @param float $value    The value.
+     * @param int   $decimals Decimal places for values below 10.
+     * @return string Formatted number.
+     */
+    private static function format_number(float $value, int $decimals = 2): string {
+        if (abs($value) >= 10) {
+            return number_format($value, 0);
+        }
+        return number_format($value, $decimals);
     }
 }

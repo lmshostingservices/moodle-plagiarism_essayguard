@@ -105,13 +105,46 @@ class before_footer {
         }
 
         // Count students who have Essay Guard scores for this quiz.
-        $count = (int)$DB->count_records(
-            'plagiarism_essayguard_sc',
-            [
-                'cmid'  => $cm->id,
-                'qslot' => 0,
-                ]
-        );
+        //
+        // SEC-EG-FOOTER-GROUPS (v1.3.0): honour separate groups. The v1.2.219/221/224
+        // sweep added group restrictions to report.php, student.php, rescore.php and
+        // get_badges.php and missed this count, so a tutor restricted to one group saw
+        // the figure for the whole cohort on the button. A count rather than names, but
+        // it is the same leak and it is one query away from being right.
+        $groupmode = groups_get_activity_groupmode($cm);
+        $context   = \context_module::instance($cm->id);
+        $restrict  = ($groupmode == SEPARATEGROUPS)
+            && !has_capability('moodle/site:accessallgroups', $context);
+
+        if ($restrict) {
+            $mygroups = groups_get_activity_allowed_groups($cm);
+            if (empty($mygroups)) {
+                $count = 0;
+            } else {
+                list($ginsql, $gparams) = $DB->get_in_or_equal(
+                    array_keys($mygroups),
+                    SQL_PARAMS_NAMED,
+                    'eggrp'
+                );
+                $count = (int)$DB->count_records_sql(
+                    "SELECT COUNT(sc.id)
+                       FROM {plagiarism_essayguard_sc} sc
+                      WHERE sc.cmid = :cmid AND sc.qslot = 0
+                        AND EXISTS (SELECT 1
+                                      FROM {groups_members} gm
+                                     WHERE gm.userid = sc.userid AND gm.groupid {$ginsql})",
+                    array_merge(['cmid' => $cm->id], $gparams)
+                );
+            }
+        } else {
+            $count = (int)$DB->count_records(
+                'plagiarism_essayguard_sc',
+                [
+                    'cmid'  => $cm->id,
+                    'qslot' => 0,
+                    ]
+            );
+        }
 
         $reporturl = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cm->id]);
 

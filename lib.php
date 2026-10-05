@@ -194,6 +194,17 @@ function plagiarism_essayguard_check_unlock(bool $allowfetch = false) {
     $curl->setopt([
         'CURLOPT_TIMEOUT'        => 10,
         'CURLOPT_CONNECTTIMEOUT' => 5,
+        // SEC-EG-TLS (v1.3.0): verify the certificate chain and refuse redirects.
+        //
+        // Moodle's \curl class resets CURLOPT_SSL_VERIFYPEER to 0, and VERIFYHOST
+        // without VERIFYPEER verifies nothing — so an attacker on the path between the
+        // Moodle server and the licence host could present any certificate, return
+        // {"unlocked":true}, and harvest the site's API key. FOLLOWLOCATION defaults to
+        // on with up to 10 redirects, which would forward the credential to any host a
+        // 302 named.
+        'CURLOPT_SSL_VERIFYPEER' => 1,
+        'CURLOPT_SSL_VERIFYHOST' => 2,
+        'CURLOPT_FOLLOWLOCATION' => 0,
     ]);
     $response  = $curl->get(
         'https://lms-labs.com/api/plugin-unlock/verify',
@@ -293,6 +304,10 @@ function plagiarism_essayguard_auto_unlock(string $siteid, string $apikey): bool
             'CURLOPT_TIMEOUT'        => 15,
             'CURLOPT_CONNECTTIMEOUT' => 5,
             'CURLOPT_HTTPHEADER'     => ['Content-Type: application/json', 'Accept: application/json'],
+            // SEC-EG-TLS (v1.3.0): see check_unlock().
+            'CURLOPT_SSL_VERIFYPEER' => 1,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
+            'CURLOPT_FOLLOWLOCATION' => 0,
             ]
     );
     $httpcode = (int)($curl->info['http_code'] ?? 0);
@@ -389,7 +404,14 @@ function plagiarism_essayguard_get_platform_settings(bool $allowfetch = false): 
             \core\session\manager::write_close();
         }
         $curl = new \curl();
-        $curl->setopt(['CURLOPT_TIMEOUT' => 5, 'CURLOPT_CONNECTTIMEOUT' => 3]);
+        $curl->setopt([
+            'CURLOPT_TIMEOUT'        => 5,
+            'CURLOPT_CONNECTTIMEOUT' => 3,
+            // SEC-EG-TLS (v1.3.0): see check_unlock().
+            'CURLOPT_SSL_VERIFYPEER' => 1,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
+            'CURLOPT_FOLLOWLOCATION' => 0,
+            ]);
         $response  = $curl->get(
             'https://lms-labs.com/api/plagiarism-settings',
             [
@@ -557,12 +579,20 @@ function plagiarism_essayguard_print_disclosure(int $cmid): string {
         ? get_string('disclosure_retention', 'plagiarism_essayguard', $retentiondays)
         : get_string('disclosure_retention_indefinite', 'plagiarism_essayguard');
 
+    // A11Y-EG-DISCLOSURE (v1.3.0): the heading is a real heading, so screen-reader
+    // users can reach it by heading navigation. It was a <strong> inside a div, which
+    // is not reachable that way — on the most legally significant text in the plugin.
     $out  = \html_writer::start_div('essayguard-disclosure', ['role' => 'note']);
-    $out .= \html_writer::tag('strong', get_string('disclosure_heading', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('h3', get_string('disclosure_heading', 'plagiarism_essayguard'),
+        ['class' => 'essayguard-disclosure-heading']);
     $out .= \html_writer::tag('p', get_string('disclosure_what', 'plagiarism_essayguard'));
     $out .= \html_writer::tag('p', get_string('disclosure_why', 'plagiarism_essayguard'));
     $out .= \html_writer::tag('p', get_string('disclosure_who', 'plagiarism_essayguard'));
     $out .= \html_writer::tag('p', $retentiontext);
+    // DISCLOSURE-EG-GAPS (v1.3.0): three things the notice never mentioned and had to.
+    $out .= \html_writer::tag('p', get_string('disclosure_profile', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', get_string('disclosure_assistive', 'plagiarism_essayguard'));
+    $out .= \html_writer::tag('p', get_string('disclosure_contest', 'plagiarism_essayguard'));
     $out .= \html_writer::end_div();
 
     return $out;
@@ -576,9 +606,25 @@ function plagiarism_essayguard_print_disclosure(int $cmid): string {
  */
 function plagiarism_essayguard_inject_tracker() {
     /* $DB is needed by the v1.2.224 attempt-ownership check below. */
-    global $PAGE, $USER, $DB;
+    global $PAGE, $USER, $DB, $CFG;
 
     if (isguestuser() || !isloggedin()) {
+        return;
+    }
+
+    // SEC-EG-ENABLEPLAGIARISM (v1.3.0): honour Moodle's master switch.
+    //
+    // $CFG->enableplagiarism was read only by settings.php and the activity settings
+    // form. The capture path ignored it entirely, so on a site where the administrator
+    // had never switched the plagiarism subsystem on — which is the default — the
+    // tracker was injected and every keystroke was recorded, while core's
+    // plagiarism_get_links() and plagiarism_print_disclosure() both returned early.
+    //
+    // That is the worst possible combination: full collection, no output, and no
+    // disclosure to the student. The plugin's own install notice told administrators
+    // "Essay Guard will not run until Moodle's plagiarism subsystem is switched on",
+    // which was not true.
+    if (empty($CFG->enableplagiarism)) {
         return;
     }
     // FIX-EG-GLOBAL-ENABLED-MISSING (v1.2.88): get_config() returns false when the
@@ -665,6 +711,17 @@ function plagiarism_essayguard_inject_tracker() {
     // set to 'mod-quiz-attempt' at hook-fire time on some Moodle 4.3+ installations.
     // Dual check: pagetype OR REQUEST_URI path — attempt.php always passes at least
     // one of these regardless of hook timing relative to $PAGE->set_pagetype().
+    // SEC-EG-SUPPORTS-MOD-GATE (v1.3.0): only capture in the module types this
+    // plugin declares support for. inject_tracker() runs from a head hook on EVERY
+    // page of the site, and its only module gate was "is there a course module and
+    // is it active". Combined with the tracker binding any textarea or contenteditable
+    // outside a .que container, that meant keystrokes were recorded in wikis,
+    // glossaries, databases, lesson pages, book comments and comment boxes — none of
+    // which are assessment submissions and none of which show the disclosure.
+    if (!plagiarism_essayguard_supports_mod($cm->modname)) {
+        return;
+    }
+
     if ($cm->modname === 'quiz') {
         $pagetypeok = in_array($PAGE->pagetype, ['mod-quiz-attempt'], true);
         $diagurl    = $_SERVER['REQUEST_URI'] ?? '';
@@ -926,12 +983,13 @@ function plagiarism_essayguard_coursemodule_edit_post_actions($data, $course) {
  *
  * @return void
  */
-function plagiarism_essayguard_before_standard_html_head() {
-    if (class_exists('core\hook\output\before_standard_head_html_generation')) {
-        return;
-    }
-    plagiarism_essayguard_inject_tracker();
-}
+// FIX-EG-LEGACY-CALLBACK-REMOVED (v1.3.0): plagiarism_essayguard_before_standard_html_head()
+// deleted. Moodle's get_plugins_with_function() emits "Callback X should be migrated to new
+// hook callback" at DEBUG_DEVELOPER for ANY plugin that defines a legacy output callback,
+// whatever the body does — which is exactly why the top-of-body sibling was removed. This one
+// was left behind, so the notice it was meant to silence kept firing. Its body was also
+// unreachable: it returned immediately when the hook class exists, and at the declared floor
+// of Moodle 4.4 that class always exists.
 
 /*
  * NOTE: this is a plain block comment, not a docblock. It documents the
@@ -1086,6 +1144,242 @@ if (!class_exists('plagiarism_plugin_essayguard', false)) {
  */
 
 /**
+ * SEC-EG-ATTEMPTKEY-ALLOWLIST (v1.3.0): validate an attempt key positively.
+ *
+ * The previous check was negative: a key matching qa_<digits> had to resolve to an
+ * attempt owned by the caller, and **anything else was accepted unconditionally**.
+ * PARAM_ALPHANUMEXT permits 64 characters of [A-Za-z0-9_-], and the legitimate
+ * non-quiz key is a plain sha1 hex string, so the server had no way to tell a
+ * forged key from a real one.
+ *
+ * The consequence was a complete bypass of the product's purpose. A student scored
+ * HIGH could call finalize_attempt with attemptkey "clean1" and a plausible essay.
+ * That inserts a brand new score row with timemodified = now, which
+ * plagiarism_essayguard_scope_to_current_attempt() then elects as "the current
+ * attempt" — hiding the real evidence from the badge, the class report and the
+ * student page. Repeat with clean2, clean3 after each teacher visit.
+ *
+ * Only two keys can ever be legitimate for a given user and activity, so both are
+ * now named explicitly and everything else is refused.
+ *
+ * @param string $attemptkey The key supplied by the caller.
+ * @param object $cm         The course module the call is scoped to.
+ * @param int    $userid     The calling user.
+ * @return bool True when the key is one this user could legitimately own.
+ */
+function plagiarism_essayguard_attemptkey_is_valid(string $attemptkey, $cm, int $userid): bool {
+    global $DB;
+
+    if ($attemptkey === '' || \core_text::strlen($attemptkey) > 64) {
+        return false;
+    }
+
+    // Form 1: the hash key used for assignments, forums and for quiz pages where the
+    // attempt id was not available.
+    if ($attemptkey === sha1($userid . ':' . $cm->id)) {
+        return true;
+    }
+
+    // Form 2: a quiz attempt owned by this user IN THIS ACTIVITY. The activity check
+    // matters: without it an attempt id from quiz A is accepted against quiz B's cmid,
+    // writing rows under the wrong activity. inject_tracker() has always checked the
+    // activity; the web services did not.
+    if ($cm->modname === 'quiz' && preg_match('/^qa_(\d+)$/', $attemptkey, $m)) {
+        return $DB->record_exists(
+            'quiz_attempts',
+            [
+                'id'     => (int)$m[1],
+                'userid' => $userid,
+                'quiz'   => $cm->instance,
+                ]
+        );
+    }
+
+    return false;
+}
+
+/**
+ * FIX-EG-ONE-TRUTH (v1.2.234): Load this user's score records for ONE attempt.
+ *
+ * Every display surface previously ran its own query with its own ordering and
+ * none of them filtered by attemptkey, so lib.php (badge), report.php (class
+ * report) and student.php (detail page) could each select a different row for
+ * the same question. Symptoms: a question badged HIGH on the attempt page and
+ * LOW in the report, and scores from attempt 1 mixed with scores from attempt 2
+ * on the same screen.
+ *
+ * Rules, applied identically everywhere:
+ *   - The current attempt is the one owning the most recently written record.
+ *   - Only records from that attempt are returned.
+ *   - Ordering is fully deterministic: timemodified DESC, id DESC. Per-question
+ *     rows are written in the same second by the observer loop, so without the
+ *     id tiebreak the database is free to return them in any order, and two
+ *     queries on the same data could legitimately disagree.
+ *
+ * @param array $rows Score records for one user (any order).
+ * @return array [qslot => record] for the current attempt only.
+ */
+function plagiarism_essayguard_scope_to_current_attempt(array $rows): array {
+    if (empty($rows)) {
+        return [];
+    }
+
+    usort($rows, function ($a, $b) {
+        $ta = (int)($a->timemodified ?? 0);
+        $tb = (int)($b->timemodified ?? 0);
+        if ($ta !== $tb) {
+            return $tb <=> $ta;
+        }
+        return (int)($b->id ?? 0) <=> (int)($a->id ?? 0);
+    });
+
+    $current = (string)($rows[0]->attemptkey ?? '');
+    $byslot  = [];
+    foreach ($rows as $row) {
+        if ((string)($row->attemptkey ?? '') !== $current) {
+            continue;
+        }
+        $slot = (int)($row->qslot ?? 0);
+        if (!isset($byslot[$slot])) {
+            $byslot[$slot] = $row;
+        }
+    }
+
+    return $byslot;
+}
+
+/**
+ * FIX-EG-ONE-TRUTH (v1.2.234): The single per-question record-selection rule.
+ *
+ * lib.php and report.php each carried their own copy of this logic. The copies
+ * were written at different times and drifted, which is one of the ways the two
+ * pages came to disagree. There is now one implementation and both call it.
+ *
+ * A per-question score of exactly 0 means the slot captured no scoring signal
+ * at all. Only in that case may the attempt-level record speak for the question,
+ * and only when it holds real paste evidence.
+ *
+ * @param object|null $pqrecord   The per-question record (qslot = N).
+ * @param object|null $aggrecord  The attempt-level record (qslot = 0).
+ * @param bool        $isfallback Set true when the aggregate was substituted.
+ * @return object|null The record to display.
+ */
+function plagiarism_essayguard_resolve_question_record($pqrecord, $aggrecord, &$isfallback) {
+    $isfallback = false;
+
+    if (!$pqrecord) {
+        if ($aggrecord) {
+            $isfallback = true;
+        }
+        return $aggrecord;
+    }
+
+    if (!$aggrecord || (float)$pqrecord->riskscore > 0.0) {
+        return $pqrecord;
+    }
+
+    // FIX-EG-ELEVATED-AGG-LOOP (v1.2.234): an aggregate that was itself elevated
+    // to the worst per-question score (analyser FIX-EG-AGG-PERQ-CONSISTENCY) is
+    // not independent evidence. Letting it rescue a different question copies
+    // Q1's HIGH onto Q2 and is exactly the false HIGH reported from live use.
+    $aggmetrics = !empty($aggrecord->metricsjson)
+        ? (json_decode($aggrecord->metricsjson, true) ?: [])
+        : [];
+    if (!empty($aggmetrics['agg_elevated_from_perq'])) {
+        return $pqrecord;
+    }
+
+    $aggsignal1 = (int)($aggmetrics['signal_breakdown'][1] ?? 0);
+    $haspaste   = ($aggsignal1 >= 30) || ((float)$aggrecord->riskscore >= 0.70);
+    if ($haspaste) {
+        $isfallback = true;
+        return $aggrecord;
+    }
+
+    return $pqrecord;
+}
+
+/**
+ * FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): did this record measure anything at all?
+ *
+ * A question whose events were never attributed to its slot scores 0 and renders
+ * as a green LOW badge — the same badge an honest typist earns. That is the most
+ * dangerous output the plugin can produce: a pasted answer whose events failed to
+ * tag is reported to the teacher as clean. Live example: Q1 HIGH 100/100 with
+ * 2 pastes, Q2 LOW 0/100 with 0 keystrokes, 0 pastes, 0 s typing — Q2 was never
+ * assessed, but the report said it was fine.
+ *
+ * An unmeasured record must be shown as "no data", never as a risk level.
+ *
+ * @param object|null $record A plagiarism_essayguard_sc record.
+ * @return bool True when no behavioural events were attributed to this record.
+ */
+function plagiarism_essayguard_is_unmeasured($record): bool {
+    if (!$record) {
+        return true;
+    }
+
+    $metrics = !empty($record->metricsjson)
+        ? (json_decode($record->metricsjson, true) ?: [])
+        : [];
+
+    // Records written by v1.2.234 and later carry the event count directly.
+    if (array_key_exists('event_count', $metrics)) {
+        return (int)$metrics['event_count'] === 0;
+    }
+
+    // Older records: infer it. No keystrokes, no pastes and no typing time means
+    // nothing was ever captured for this slot.
+    $keystrokes = (int)($metrics['total_keystrokes'] ?? $record->total_keystrokes ?? 0);
+    $pastes     = (int)($metrics['paste_events'] ?? $record->paste_events ?? 0);
+    $typing     = (int)($metrics['typing_time'] ?? $record->typing_time ?? 0);
+
+    return ($keystrokes === 0) && ($pastes === 0) && ($typing === 0);
+}
+
+/**
+ * FIX-EG-ONE-TRUTH (v1.2.234): The single definition of a student's overall score.
+ *
+ * Three surfaces previously computed "overall" three different ways: the badge
+ * used the attempt-level record (which the analyser may have silently raised to
+ * the worst question), the class report used the mean of the per-question scores,
+ * and the student page used the raw qslot=0 row. On a two-question quiz scoring
+ * 100 and 0 those three rules produce HIGH, MEDIUM and HIGH from identical data.
+ *
+ * The rule is now stated once here. 'max' is the default because an integrity
+ * indicator should not be diluted by the questions that were fine: one pasted
+ * answer in a quiz is a pasted answer. Change the constant to 'mean' to average
+ * instead; both behaviours are then consistent across all three pages.
+ *
+ * @param array $byslot [qslot => record] from scope_to_current_attempt().
+ * @return float Overall risk score, 0.0–1.0.
+ */
+function plagiarism_essayguard_overall_score(array $byslot): float {
+    $rule = 'max';
+
+    $agg    = $byslot[0] ?? null;
+    $scores = [];
+    foreach ($byslot as $slot => $record) {
+        if ((int)$slot <= 0) {
+            continue;
+        }
+        $isfallback = false;
+        $resolved   = plagiarism_essayguard_resolve_question_record($record, $agg, $isfallback);
+        $scores[]   = (float)($resolved->riskscore ?? 0.0);
+    }
+
+    if (empty($scores)) {
+        return (float)($agg->riskscore ?? 0.0);
+    }
+
+    if ($rule === 'mean') {
+        return array_sum($scores) / count($scores);
+    }
+
+    return max($scores);
+}
+
+/**
  * FIX-EG-QSLOT-CONTENT (v1.2.75): Identify the quiz question slot that produced
  * a given submitted text, for use when Moodle does not pass 'questionattempt' in
  * $linkarray (older Moodle versions do not include it).
@@ -1137,7 +1431,7 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
                FROM {quiz_attempts} qa
                JOIN {quiz} q ON q.id = qa.quiz
                JOIN {course_modules} cm ON cm.instance = q.id
-              WHERE cm.id = :cmid AND qa.userid = :userid AND qa.state = 'finished'
+              WHERE cm.id = :cmid AND qa.userid = :userid
            ORDER BY qa.id DESC",
             ['cmid' => $cmid, 'userid' => $userid],
             IGNORE_MULTIPLE
@@ -1190,41 +1484,58 @@ function plagiarism_essayguard_find_qslot_by_content(int $cmid, int $userid, str
 
     $claimed = $claimedslots[$cachekey] ?? [];
 
-    // Track the overall best match AND the best unclaimed match separately.
-    // Unclaimed slots are always preferred; claimed slots are the last resort.
-    $bestslot           = 0;
-    $bestpct            = 0.0;
-    $bestunclaimedslot = 0;
-    $bestunclaimedpct  = 0.0;
+    // FIX-EG-MATCH-QUALITY-FIRST (v1.2.234): score every slot, then decide.
+    //
+    // The previous rule returned the best UNCLAIMED slot even when a claimed slot
+    // was a far better match. On a quiz where two answers resemble each other
+    // (same student, related questions, 60 % similarity is easy to reach) that
+    // handed Q2 the record belonging to Q1 — the reported "attempt page says
+    // HIGH, report says LOW" mismatch. Match quality now decides; the claim is
+    // only a tiebreak between candidates that are genuinely close.
+    //
+    // similar_text() is O(n^3) in the worst case, so long answers are compared
+    // on a bounded prefix. A 2,000-character prefix identifies an answer well
+    // beyond any doubt and keeps a 200-student report from timing out.
+    $maxcompare = 2000;
+    if (mb_strlen($decodedcontent) > $maxcompare) {
+        $decodedcontent = mb_substr($decodedcontent, 0, $maxcompare);
+    }
 
+    $candidates = [];
     foreach ($answercache[$cachekey] as $slot => $slottext) {
         $decodedslot = html_entity_decode($slottext, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (mb_strlen($decodedslot) > $maxcompare) {
+            $decodedslot = mb_substr($decodedslot, 0, $maxcompare);
+        }
         similar_text($decodedcontent, $decodedslot, $simpct);
-        if ($simpct < 60.0) {
-            continue;
-        }
-        // Track overall best (fallback when every slot is already claimed).
-        if ($simpct > $bestpct) {
-            $bestpct  = $simpct;
-            $bestslot = $slot;
-        }
-        // Track best unclaimed slot — this is what we prefer to return.
-        if (!isset($claimed[$slot]) && $simpct > $bestunclaimedpct) {
-            $bestunclaimedpct  = $simpct;
-            $bestunclaimedslot = $slot;
+        if ($simpct >= 60.0) {
+            $candidates[$slot] = (float)$simpct;
         }
     }
 
-    // Prefer an unclaimed slot; only fall back to a claimed slot if every
-    // matching slot has already been resolved in this page-render cycle.
-    $resolved = $bestunclaimedslot > 0 ? $bestunclaimedslot : $bestslot;
-
-    if ($resolved > 0) {
-        $claimedslots[$cachekey][$resolved] = true;
-        return $resolved;
+    if (empty($candidates)) {
+        return 0; // No match found.
     }
 
-    return 0; // No match found.
+    arsort($candidates);
+    $slots  = array_keys($candidates);
+    $best   = $slots[0];
+    $second = $slots[1] ?? 0;
+
+    // Only let the claim override the best match when the runner-up is within
+    // five points of it — i.e. when the two are too close to separate on
+    // similarity alone and call order is the better evidence.
+    if (
+        $second > 0
+        && isset($claimed[$best])
+        && !isset($claimed[$second])
+        && ($candidates[$best] - $candidates[$second]) <= 5.0
+    ) {
+        $best = $second;
+    }
+
+    $claimedslots[$cachekey][$best] = true;
+    return (int)$best;
 }
 
 /**
@@ -1490,20 +1801,23 @@ function plagiarism_essayguard_get_links($linkarray) {
             $params['userid'] = $scopeuid;
         }
         $allrows = $DB->get_records_sql(
-            "SELECT id, userid, cmid, qslot, riskscore, risklevel, metricsjson, timemodified
+            "SELECT id, userid, cmid, qslot, attemptkey, riskscore, risklevel, metricsjson, timemodified
                FROM {plagiarism_essayguard_sc}
               WHERE {$where}
-           ORDER BY timemodified DESC",
+           ORDER BY timemodified DESC, id DESC",
             $params
         );
+        // FIX-EG-ONE-TRUTH (v1.2.234): group by user, then scope each user to a
+        // single attempt through the shared rule. The old code kept the newest
+        // row per (userid, qslot) with no attempt filter and no deterministic
+        // tiebreak, so one screen could show Q1 from attempt 2 beside Q2 from
+        // attempt 1, and two screens could disagree on identical data.
+        $rowsbyuser = [];
         foreach ($allrows as $row) {
-            $uid  = (int)$row->userid;
-            $slot = (int)$row->qslot;
-            // Keep only the most-recent record per (userid, qslot) pair
-            // (ORDER BY timemodified DESC guarantees first-wins = newest).
-            if (!isset($egsccache[$cachekey][$uid][$slot])) {
-                $egsccache[$cachekey][$uid][$slot] = $row;
-            }
+            $rowsbyuser[(int)$row->userid][] = $row;
+        }
+        foreach ($rowsbyuser as $uid => $userrows) {
+            $egsccache[$cachekey][$uid] = plagiarism_essayguard_scope_to_current_attempt($userrows);
         }
     }
     /* ───────────────────────────────────────────────────────────────────────── */
@@ -1512,7 +1826,8 @@ function plagiarism_essayguard_get_links($linkarray) {
     $classreportlink = '';
     if ($isteacher) {
         $classreporturl  = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]);
-        $classreportlink = '<a href="' . $classreporturl->out(false) . '" class="essayguard-link">Essay Guard class report</a>';
+        $classreportlink = '<a href="' . $classreporturl->out(false) . '" class="essayguard-link">'
+            . s(get_string('classreportlink', 'plagiarism_essayguard')) . '</a>';
     }
 
     // FIX-EG-CALLORDER-SKIP-RESOLVED (v1.2.165): Unified slot-resolution tracker.
@@ -1589,52 +1904,22 @@ function plagiarism_essayguard_get_links($linkarray) {
         }
     }
 
-    // FIX-EG-QSLOT-CALLORDER (v1.2.155): Last-resort call-order slot assignment.
-    // FIX-EG-CALLORDER-SKIP-RESOLVED (v1.2.165): Replaced $co_idx sequential counter
-    // with first-unresolved-slot iteration using the unified $resolved tracker above.
-    // FIX-EG-CALLORDER-NO-CONTENT-GATE (v1.2.185): Content gate removed — see above.
+    // FIX-EG-NO-CALL-ORDER-GUESSING (v1.3.0): REMOVED the call-order fallback.
     //
-    // Both primary detection paths returned 0:
-    // • get_slot() — 'questionattempt' absent (overview page) or Moodle < 4.1.
-    // • find_qslot_by_content() — content < 30 chars (overview page status strings)
-    // OR similarity < 60% (short answer, multi-attempt, different whitespace).
+    // It assigned a question slot by counting get_links() calls: the Nth call for this
+    // user and activity was taken to be the Nth question. That is an integrity
+    // judgement assigned by coincidence. It rested on an assumption about the order in
+    // which core renders questions — not part of any API contract, free to change in a
+    // point release — and nothing detected when it broke. One extra get_links() call
+    // on the page (a student-name cell, a second render of the response) shifted every
+    // subsequent question by one, so Q2 displayed Q1's score. That is the "attempt page
+    // says HIGH, report says LOW" mismatch, and it was patched four times in fifteen
+    // releases without being removed.
     //
-    // When per-question records exist for this user+cmid, Moodle always calls
-    // get_links() for quiz essay questions in question-slot order (slot 1 → slot 2 → …)
-    // within a single page request. We pick the first slot that has NOT already been
-    // resolved by a prior call, ensuring Q2 cannot re-use Q1's slot when Q1 was
-    // resolved by a different detection method.
-    //
-    // Safety:
-    // • If no per-question records exist (assignment / forum — only qslot=0 written),
-    // $co_slots[$ck] is empty and the block is a no-op; aggregate is used as before.
-    // • Static arrays are per-PHP request; they reset between page loads automatically.
-    if ($qslot === 0) {
-        static $coslots = [];  /* "cmid:userid" => ordered list of distinct per-Q slots */
-
-        $ck = $cmid . ':' . $userid;
-        if (!array_key_exists($ck, $coslots)) {
-            // PERF-FIX-EG-BATCH-PRELOAD: serve from request-level cache; no DB query.
-            $userslots = array_keys($egsccache[$cachekey][$userid] ?? []);
-            $userslots = array_values(
-                array_filter($userslots, function ($s) {
-                    return $s > 0;
-                    })
-            );
-            sort($userslots);
-            $coslots[$ck] = $userslots;
-        }
-
-        // Pick the first slot not already resolved by any prior detection method.
-        $already = $resolved[$rk] ?? [];
-        foreach ($coslots[$ck] as $candidate) {
-            if (!isset($already[$candidate])) {
-                $qslot = $candidate;
-                $resolved[$rk][$qslot] = true;
-                break;
-            }
-        }
-    }
+    // When the slot genuinely cannot be determined, no badge is shown and the teacher
+    // is sent to the report, which reads the per-question records directly. Saying
+    // nothing is better than attributing one student's pasted answer to a different
+    // question.
 
     // FIX-EG-OVERVIEW-AGGREGATE-BLEED (v1.2.169): Prevent the aggregate badge from
     // appearing for every question on the quiz overview/grades report page.
@@ -1748,74 +2033,12 @@ function plagiarism_essayguard_get_links($linkarray) {
     // reflects real signals → shown as-is (no change).
     // • Real per-question paste (riskscore > 0 from tagged paste) → trusted
     // directly, never overwritten by aggregate (no change from v1.2.93).
-    if ($pqrecord && $aggrecord) {
-        // The $agg_has_paste_evidence guard alone is sufficient — keystroke
-        // activity from Ctrl+V modifier presses is not a reliable indicator
-        // that the paste was correctly attributed to this slot, so we no
-        // longer require !$pq_has_activity (the v1.2.109 check that broke
-        // Bug A). Honest typists are protected by $agg_has_paste_evidence:
-        // their aggregate has no paste, so no fallback occurs.
-        // FIX-EG-AGG-PASTE-MEANINGFUL (v1.2.143): Previously any paste_events > 0
-        // was treated as paste evidence, including tiny autocorrect replacements that
-        // only awarded Signal 1 = 10 pts (< 5% of text). This caused the per-question
-        // fallback to fire for ALL questions when the aggregate had an incidental paste,
-        // displaying the aggregate score (e.g. 45% MEDIUM) on every question in the
-        // Review Attempt page while the EssayGuard Report correctly showed the lower
-        // individual per-question scores (e.g. 20% and 0%) — a visible two-report
-        // mismatch that confused teachers.
-        //
-        // Fix: require Signal 1 ≥ 30 pts (meaningful paste — at least the MEDIUM floor
-        // that requires ≥ 5% of the answer to have been pasted) OR riskscore ≥ 0.70
-        // (HIGH threshold — definitive paste evidence regardless of breakdown). An
-        // incidental autocorrect paste (Signal 1 = 10 pts) no longer qualifies as
-        // "paste evidence" and does not trigger the per-question fallback.
-        $aggmetricsarr  = !empty($aggrecord->metricsjson)
-            ? (json_decode($aggrecord->metricsjson, true) ?: [])
-            : [];
-        $aggsignal1pts  = (int)(($aggmetricsarr['signal_breakdown'][1] ?? 0));
-        $agghaspasteevidence = ($aggsignal1pts >= 30)
-                               || ((float)$aggrecord->riskscore >= 0.70);
+    // FIX-EG-ONE-TRUTH (v1.2.234): one shared rule, see
+    // plagiarism_essayguard_resolve_question_record(). lib.php and report.php
+    // previously each carried their own copy of the selection logic; the copies
+    // drifted and the two pages disagreed about the same question.
+    $record = plagiarism_essayguard_resolve_question_record($pqrecord, $aggrecord, $isaggregatefallback);
 
-        // FIX-EG-MISSED-PERQ-PASTE (v1.2.132): Extended condition introduced in v1.2.132
-        // to catch Ctrl+V pastes where only modifier keydowns (Ctrl+V = 2 keydowns) were
-        // tagged to the slot and the paste event landed in the aggregate pool — per-question
-        // riskscore was capped at 29 (> 0.0), so the original guard never fired.
-        //
-        // FIX-EG-PERQ-PASTE-STRICT (v1.2.160): REVERTED to strict <= 0.0 guard.
-        // Root cause of Review Attempt vs EssayGuard Report mismatch (reported v1.2.159):
-        // When qslot event-tagging fails entirely (all keystrokes land in the aggregate
-        // pool with qslot=0), the per-question record has total_keystrokes=0 and a
-        // linguistic-fallback riskscore of ~0.25 (LOW). The v1.2.132 extended condition
-        // (riskscore < 0.30 AND paste_events=0 AND keystrokes<=10) matched this profile
-        // exactly, triggering the aggregate fallback for TYPED questions when any OTHER
-        // question in the same attempt was pasted. Result: every question in Review Attempt
-        // showed the aggregate HIGH score, while EssayGuard Report (which uses the strict
-        // <= 0.0 gate in report.php) correctly showed the lower per-question score — a
-        // consistent, reproducible mismatch for any multi-question quiz where one question
-        // was pasted and qslot event-tagging partially failed.
-        //
-        // Strict guard: only fall back when the per-question record genuinely has NO
-        // scoring signal at all (riskscore=0.0). A non-zero per-question score — even
-        // a linguistic-fallback LOW — represents real information about that specific
-        // question slot and must not be silently overridden by the aggregate.
-        // This makes lib.php and report.php use identical fallback logic → no mismatch.
-        $pqlookslikemissedpaste = ((float)$pqrecord->riskscore <= 0.0);
-        if ($pqlookslikemissedpaste && $agghaspasteevidence) {
-            // Per-question scorer found no paste for this slot AND the aggregate
-            // clearly detected a paste somewhere in the attempt: surface it.
-            $record = $aggrecord;
-            $isaggregatefallback = true;
-        } else {
-            // Either the per-question score is meaningful, OR the aggregate has
-            // no paste evidence to rescue it. Trust the per-question record.
-            $record = $pqrecord;
-        }
-    } else {
-        $record = $pqrecord ?? $aggrecord;
-        if ($record && $aggrecord && $qslot > 0 && $record === $aggrecord) {
-            $isaggregatefallback = true;
-        }
-    }
 
     if (!$record) {
         // No score yet — teachers still see the report link; students see nothing.
@@ -1829,6 +2052,26 @@ function plagiarism_essayguard_get_links($linkarray) {
     $riskpct  = max(0, min(100, (int)round(((float)$record->riskscore) * 100)));
     $risklevel = \plagiarism_essayguard\local\service\analyser::risk_level($riskpct);
     $errmsg    = (string)($record->errormsg ?? '');
+
+    // FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): a question that captured no events was
+    // never assessed. Render it as pending rather than as a green LOW badge, which
+    // reads as "this answer is fine" when nothing was checked.
+    // FIX-EG-BADGE-NOT-PENDING (v1.3.0): an unmeasured record is final, not in
+    // progress. Rendering it as "Essay Guard is analysing this submission — reload the
+    // page in a moment" told the teacher to wait for a result that will never arrive,
+    // while render_badge()'s purpose-built 'unmeasured' state sat unused.
+    if ($qslot > 0 && !$isaggregatefallback && plagiarism_essayguard_is_unmeasured($record)) {
+        return plagiarism_essayguard_render_badge(
+            'analysed',
+            0.0,
+            'unmeasured',
+            '',
+            $cmid,
+            $userid,
+            $isteacher,
+            false
+        );
+    }
 
     return plagiarism_essayguard_render_badge(
         'analysed',

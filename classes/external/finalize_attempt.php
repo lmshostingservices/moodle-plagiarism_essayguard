@@ -57,6 +57,12 @@ require_once(__DIR__ . '/../../lib.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class finalize_attempt extends external_api {
+    /** @var int Maximum characters of submitted text accepted for analysis. */
+    const MAX_FINALTEXT_LEN = 50000;
+
+    /** @var int Minimum seconds between finalize calls for one user and activity. */
+    const FINALIZE_THROTTLE_SECONDS = 10;
+
     /**
      * Describe the arguments accepted by the finalize_attempt web service.
      *
@@ -108,24 +114,45 @@ class finalize_attempt extends external_api {
                 ]
         );
 
+        // SEC-EG-ENABLEPLAGIARISM (v1.3.0): refuse to collect or score while Moodle's
+        // plagiarism subsystem is switched off site-wide. Without this the web services
+        // kept storing telemetry on a site whose administrator had never turned the
+        // subsystem on, where core suppresses both the output and the student disclosure.
+        global $CFG;
+        if (empty($CFG->enableplagiarism)) {
+            return self::empty_result();
+        }
+
         $cm      = get_coursemodule_from_id(null, $params['cmid'], 0, false, MUST_EXIST);
         $context = context_module::instance($cm->id);
         self::validate_context($context);
         require_login($cm->course, false, $cm);
 
-        // V1.2.219: attemptkey length + ownership, same reasoning as log_event.php.
-        // finalize_attempt writes a score row keyed by attemptkey into a char(64) column
-        // and never checked either. See log_event::execute() for the full explanation.
+        // SEC-EG-ATTEMPTKEY-ALLOWLIST (v1.3.0): positive validation. The old check
+        // accepted any key that did not look like 'qa_<id>', which let a student
+        // write a clean score row under an invented key and bury their real one.
         $attemptkey = $params['attemptkey'];
-        if ($attemptkey === '' || \core_text::strlen($attemptkey) > 64) {
-            throw new \invalid_parameter_exception('attemptkey must be 1-64 characters');
+        if (!plagiarism_essayguard_attemptkey_is_valid($attemptkey, $cm, (int)$USER->id)) {
+            throw new \invalid_parameter_exception('attemptkey is not valid for this user and activity');
         }
-        if (preg_match('/^qa_(\\d+)$/', $attemptkey, $m)) {
-            global $DB;
-            if (!$DB->record_exists('quiz_attempts', ['id' => (int)$m[1], 'userid' => $USER->id])) {
-                throw new \invalid_parameter_exception('attemptkey does not resolve to an attempt owned by this user');
-            }
+
+        // SEC-EG-FINALTEXT-CAP (v1.3.0): finaltext had no length limit at all, while
+        // log_event was carefully capped. This endpoint is the expensive one: every
+        // call runs the full linguistic analysis plus a complete scoring pass. An 8 MB
+        // string in a loop was free CPU on the client's Moodle server.
+        if (\core_text::strlen($params['finaltext']) > self::MAX_FINALTEXT_LEN) {
+            $params['finaltext'] = \core_text::substr($params['finaltext'], 0, self::MAX_FINALTEXT_LEN);
         }
+
+        // SEC-EG-FINALIZE-THROTTLE (v1.3.0): one finalize per attempt per 10 seconds.
+        // log_event throttles its scoring pass; this endpoint had no throttle of any
+        // kind and is more expensive per call.
+        $throttlekey = 'essayguard_fin_' . $cm->id;
+        $lastfinalize = (int)get_user_preferences($throttlekey, 0, $USER->id);
+        if ($lastfinalize > 0 && (time() - $lastfinalize) < self::FINALIZE_THROTTLE_SECONDS) {
+            return self::empty_result();
+        }
+        set_user_preference($throttlekey, time(), $USER->id);
 
         // V1.2.219: Does the caller have any business seeing the analysis? See
         // staff_result()/student_result() below.

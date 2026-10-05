@@ -23,7 +23,7 @@
  * @copyright  2025 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/ajax'], function(Ajax) {
+define('plagiarism_essayguard/tracker', ['core/ajax'], function(Ajax) {
 
     var state = {
         cmid: 0,

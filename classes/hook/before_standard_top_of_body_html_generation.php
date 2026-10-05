@@ -58,5 +58,54 @@ class before_standard_top_of_body_html_generation {
         // memory even when the head callback's hook registration is stale.
         require_once($CFG->libdir . '/plagiarismlib.php');
         require_once(__DIR__ . '/../../lib.php');
+
+        // SEC-EG-QUIZ-DISCLOSURE (v1.3.0): show the student disclosure on quiz
+        // attempt pages.
+        //
+        // Moodle calls plagiarism_print_disclosure() from the assign and forum
+        // submission forms only. mod_quiz has no plagiarism disclosure integration,
+        // and the quiz attempt page is where this plugin does nearly all of its
+        // capturing. The result was that on the plugin's primary surface every
+        // keystroke was recorded and the student was told nothing, anywhere —
+        // which is APP 5 and GDPR Art. 13 failed on their face, and the cleanest
+        // possible ground for a student to have a finding overturned.
+        $hook->add_html(self::quiz_disclosure());
+    }
+
+    /**
+     * The disclosure markup for a quiz attempt page, or an empty string elsewhere.
+     *
+     * @return string HTML to inject at the top of the page body.
+     */
+    private static function quiz_disclosure(): string {
+        global $PAGE, $CFG;
+
+        if (empty($CFG->enableplagiarism)) {
+            return '';
+        }
+        if (isguestuser() || !isloggedin() || during_initial_install()) {
+            return '';
+        }
+
+        $cm = $PAGE->cm ?? null;
+        if (!$cm || $cm->modname !== 'quiz') {
+            return '';
+        }
+
+        // Attempt pages only — not the summary, review or grading pages.
+        $pagetypeok = ($PAGE->pagetype === 'mod-quiz-attempt');
+        $uriok      = (strpos($_SERVER['REQUEST_URI'] ?? '', '/mod/quiz/attempt.php') !== false);
+        if (!$pagetypeok && !$uriok) {
+            return '';
+        }
+
+        // Teachers and anyone who can read the reports are not the subject of the
+        // notice; showing it to them is noise.
+        $context = \context_module::instance($cm->id);
+        if (has_capability('plagiarism/essayguard:viewreport', $context)) {
+            return '';
+        }
+
+        return plagiarism_essayguard_print_disclosure((int)$cm->id);
     }
 }

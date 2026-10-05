@@ -613,3 +613,42 @@ body.dark .essayguard-badge-unmeasured {
 body.dark .essayguard-badge-dot-unmeasured {
     border-color: hsl(215deg 25% 65%);
 }
+
+/* DISCLOSURE-EG-STYLE (v1.3.0): the student notice had no styling at all, so the
+   most legally significant text in the plugin rendered as unstyled body text above
+   the submission form. Colours are theme-token based so it survives dark mode. */
+.essayguard-disclosure {
+    border: 1px solid #fcd34d;
+    border-left: 4px solid #f59e0b;
+    border-radius: 6px;
+    background: #fffbeb;
+    color: #442c05;
+    padding: 0.9rem 1.1rem;
+    margin: 0 0 1.25rem;
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+.essayguard-disclosure-heading {
+    margin: 0 0 0.5rem;
+    font-size: 1rem;
+    font-weight: 700;
+    color: inherit;
+}
+
+.essayguard-disclosure p {
+    margin: 0 0 0.5rem;
+}
+
+.essayguard-disclosure p:last-child {
+    margin-bottom: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+    .essayguard-disclosure {
+        background: #2a2008;
+        color: #fde68a;
+        border-color: #92400e;
+        border-left-color: #f59e0b;
+    }
+}

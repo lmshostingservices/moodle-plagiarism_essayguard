@@ -1996,5 +1996,76 @@ function xmldb_plagiarism_essayguard_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026082800, 'plagiarism', 'essayguard');
     }
 
+    if ($oldversion < 2026100500) {
+        // FIX-EG-ONE-TRUTH (v1.2.234): display-layer consistency fixes only.
+        // No schema change. Existing score records are read differently, not
+        // rewritten; run the rescore tool if you want historical attempts
+        // recomputed with the per-question event counts now recorded.
+        upgrade_plugin_savepoint(true, 2026100500, 'plagiarism', 'essayguard');
+    }
+
+    if ($oldversion < 2026100600) {
+        // PERF-EG-EV-INDEXES (v1.3.0): the telemetry table gains one row per keystroke
+        // and had no index on timecreated, so the nightly cleanup scanned the whole
+        // table twice; no index covering the scoring lookup, so scoring an attempt read
+        // every row the user had ever generated in that activity; and none on contextid,
+        // so every GDPR erasure was a full scan of the largest table in the plugin.
+        $table = new xmldb_table('plagiarism_essayguard_ev');
+
+        $index = new xmldb_index('timecreated_ix', XMLDB_INDEX_NOTUNIQUE, ['timecreated']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $index = new xmldb_index(
+            'scoringlookup_ix',
+            XMLDB_INDEX_NOTUNIQUE,
+            ['userid', 'cmid', 'attemptkey', 'id']
+        );
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        $index = new xmldb_index('context_ix', XMLDB_INDEX_NOTUNIQUE, ['contextid']);
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_plugin_savepoint(true, 2026100600, 'plagiarism', 'essayguard');
+    }
+
+    if ($oldversion < 2026100700) {
+        // BASELINE-EG-WELFORD (v1.4.0): per-metric running statistics.
+        //
+        // The old baseline stored one point estimate per metric and compared against a
+        // fixed +/-50 % tolerance for every student and every measurement. Without a
+        // per-student dispersion estimate there is no way to tell a genuine anomaly from
+        // a student whose typing speed simply moves 50 % week to week. This table holds
+        // Welford's running mean and M2 per (user, activity type, metric), so deviation
+        // can be expressed in the student's own standard deviations.
+        $table = new xmldb_table('plagiarism_essayguard_fpm');
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('contexttype', XMLDB_TYPE_CHAR, '16', null, XMLDB_NOTNULL, null, 'other');
+        $table->add_field('metricname', XMLDB_TYPE_CHAR, '32', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('samplen', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('runmean', XMLDB_TYPE_NUMBER, '20, 6', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('runm2', XMLDB_TYPE_NUMBER, '20, 6', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_index(
+            'usermetric_uix',
+            XMLDB_INDEX_UNIQUE,
+            ['userid', 'contexttype', 'metricname']
+        );
+        $table->add_index('user_ix', XMLDB_INDEX_NOTUNIQUE, ['userid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        upgrade_plugin_savepoint(true, 2026100700, 'plagiarism', 'essayguard');
+    }
+
     return true;
 }

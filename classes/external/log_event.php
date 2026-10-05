@@ -164,6 +164,15 @@ class log_event extends external_api {
                 ]
         );
 
+        // SEC-EG-ENABLEPLAGIARISM (v1.3.0): refuse to collect or score while Moodle's
+        // plagiarism subsystem is switched off site-wide. Without this the web services
+        // kept storing telemetry on a site whose administrator had never turned the
+        // subsystem on, where core suppresses both the output and the student disclosure.
+        global $CFG;
+        if (empty($CFG->enableplagiarism)) {
+            return ['ok' => true, 'ignored' => true, 'riskscore' => 0.0, 'risklevel' => 'low'];
+        }
+
         $cm      = get_coursemodule_from_id(null, $params['cmid'], 0, false, MUST_EXIST);
         $context = context_module::instance($cm->id);
         self::validate_context($context);
@@ -186,24 +195,15 @@ class log_event extends external_api {
             );
         }
 
-        /* (2) Ownership. For quizzes the tracker names the key 'qa_<quiz_attempts.id>'.
-         * Nothing verified that the row exists or that it belongs to the caller, so a
-         * student could POST a fabricated clean typing stream under ANOTHER student's
-         * attempt key and overwrite their risk evidence — or manufacture a spotless
-         * stream under a key of their own choosing and have it scored as genuine.
-         * Now a qa_* key must resolve to a quiz_attempts row owned by $USER.
+        /* (2) Ownership. SEC-EG-ATTEMPTKEY-ALLOWLIST (v1.3.0): the old check only
+         * validated keys that LOOKED like 'qa_<id>' and accepted every other shape
+         * unconditionally, so a student could write a clean score row under a key of
+         * their own invention and have it displace their real evidence everywhere.
+         * Only the two keys this user could legitimately own are accepted now; see
+         * plagiarism_essayguard_attemptkey_is_valid() in lib.php.
          */
-        if (preg_match('/^qa_(\d+)$/', $attemptkey, $m)) {
-            $ownsattempt = $DB->record_exists(
-                'quiz_attempts',
-                [
-                    'id'     => (int)$m[1],
-                    'userid' => $USER->id,
-                    ]
-            );
-            if (!$ownsattempt) {
-                throw new invalid_parameter_exception('attemptkey does not resolve to an attempt owned by this user');
-            }
+        if (!plagiarism_essayguard_attemptkey_is_valid($attemptkey, $cm, (int)$USER->id)) {
+            throw new invalid_parameter_exception('attemptkey is not valid for this user and activity');
         }
 
         /* (3) Volume. Cap the batch and each payload. Without these a single POST could

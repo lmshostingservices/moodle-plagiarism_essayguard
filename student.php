@@ -99,13 +99,18 @@ $PAGE->requires->css('/plagiarism/essayguard/styles.css');
 
 /* ── Load score record ───────────────────────────────────────────────────────── */
 
-$sc = $DB->get_record_sql(
+// FIX-EG-ONE-TRUTH (v1.2.234): load every record for this student, then scope to
+// a single attempt with the shared rule. The old query ordered by qslot ASC and
+// took the first row with IGNORE_MULTIPLE, which selected the attempt-level row
+// of an arbitrary attempt and could pair it with per-question rows from another.
+$egallrecords = $DB->get_records_sql(
     "SELECT * FROM {plagiarism_essayguard_sc}
       WHERE userid = :userid AND cmid = :cmid
-   ORDER BY qslot ASC, timemodified DESC",
-    ['userid' => $userid, 'cmid' => $cmid],
-    IGNORE_MULTIPLE
+   ORDER BY timemodified DESC, id DESC",
+    ['userid' => $userid, 'cmid' => $cmid]
 );
+$egbyslot = plagiarism_essayguard_scope_to_current_attempt(array_values($egallrecords));
+$sc = $egbyslot[0] ?? (reset($egbyslot) ?: null);
 
 /* ── Colour map ──────────────────────────────────────────────────────────────── */
 
@@ -161,26 +166,43 @@ $score  = isset($sc->riskscore) ? (int)round((float)($sc->riskscore ?? 0) * 100)
 $level  = \plagiarism_essayguard\local\service\analyser::risk_level($score);
 $c      = $riskcolours[$level] ?? $riskcolours['low'];
 
+// FIX-EG-STUDENT-HEADER-UNMEASURED (v1.3.0): this page is the evidence document, and
+// it was the one surface the "no data is not LOW" work never reached. An attempt where
+// the tracker never ran rendered a 2.8rem "0" with a green LOW RISK heading and a green
+// progress bar — a confident clean result produced by measuring nothing.
+$egheaderunmeasured = plagiarism_essayguard_is_unmeasured($sc);
+if ($egheaderunmeasured) {
+    $level = 'nodata';
+    $c     = [
+        'bg'    => '#f3f4f6',
+        'text'  => '#4b5563',
+        'bar'   => '#9ca3af',
+        'label' => get_string('nodatabadge', 'plagiarism_essayguard'),
+        ];
+}
+
 $explanations = json_decode($sc->explanationsjson ?? '[]', true) ?: [];
 $metrics      = json_decode($sc->metricsjson ?? '{}', true) ?: [];
 
 /* ── Overall score card + visual bar ────────────────────────────────────────── */
 
-$barw      = min(100, $score);
+$barw      = $egheaderunmeasured ? 0 : min(100, $score);
 $barcolour = $c['bar'];
 
 echo '<div style="background:' . $c['bg'] . ';border:1px solid ' . $c['text'] . '33;border-radius:8px;padding:1.25rem '
     . '1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">';
 
 echo '<div style="text-align:center;">';
-echo '<div style="font-size:2.8rem;font-weight:800;color:' . $c['text'] . ';">' . $score . '</div>';
+echo '<div style="font-size:2.8rem;font-weight:800;color:' . $c['text'] . ';">'
+    . ($egheaderunmeasured ? '&mdash;' : $score) . '</div>';
 echo '<div style="font-size:0.8rem;color:' . $c['text'] . ';font-weight:600;">/ 100</div>';
 echo '</div>';
 
 echo '<div style="flex:1;min-width:200px;">';
 echo '<div style="font-size:1.2rem;font-weight:700;color:' . $c['text'] . ';margin-bottom:0.25rem;">'
-    . strtoupper($c['label']) . ' '
-    . core_text::strtoupper(get_string('riskword', 'plagiarism_essayguard')) . '</div>';
+    . core_text::strtoupper($c['label'])
+    . ($egheaderunmeasured ? '' : ' ' . core_text::strtoupper(get_string('riskword', 'plagiarism_essayguard')))
+    . '</div>';
 echo '<div '
     . 'style="width:100%;max-width:300px;height:10px;background:#e5e7eb;border-radius:5px;overflow:hidden;margin-bottom:0.35rem;">';
 echo '<div style="width:' . $barw . '%;height:100%;background:' . $barcolour . ';border-radius:5px;"></div>';
@@ -195,18 +217,26 @@ echo '</div>';
 echo '</div>';
 
 echo '<div style="font-size:0.8rem;color:#6b7280;line-height:1.9;">';
-echo '<span style="color:#166534;font-weight:600;">&#9679; ' . strtoupper($egrisklow) . '</span>: 0–29 &nbsp; ';
-echo '<span style="color:#c2410c;font-weight:600;">&#9679; ' . strtoupper($egriskmedium) . '</span>: 30–64 &nbsp; ';
-echo '<span style="color:#991b1b;font-weight:600;">&#9679; ' . strtoupper($egriskhigh) . '</span>: 65–100';
+echo '<span style="color:#166534;font-weight:600;">&#9679; ' . core_text::strtoupper($egrisklow) . '</span>: 0&ndash;29 &nbsp; ';
+echo '<span style="color:#c2410c;font-weight:600;">&#9679; ' . core_text::strtoupper($egriskmedium) . '</span>: 30&ndash;65 &nbsp; ';
+echo '<span style="color:#991b1b;font-weight:600;">&#9679; ' . core_text::strtoupper($egriskhigh) . '</span>: 66&ndash;100';
 echo '</div>';
 
 echo '</div>';
 
 /* ── Baseline confidence ─────────────────────────────────────────────────────── */
 
-$bs      = $sc->baseline_status ?? 'none';
-$bsfp   = $DB->get_record('plagiarism_essayguard_fp', ['userid' => $userid]);
-$bssamples = $bsfp ? (int)$bsfp->samplecount : 0;
+// BASELINE-EG-WELFORD (v1.4.0): report the comparison that actually ran.
+//
+// The old panel read a samplecount off the fingerprint row and printed a confidence
+// label, while scoring used a fixed +/-50 % tolerance that had nothing to do with that
+// count — so the page could say "No baseline yet" directly above a signal table awarding
+// points for "deviates significantly from this student's baseline". Both now come from
+// the same per-metric statistics.
+$bs        = $sc->baseline_status ?? 'none';
+$bssamples = (int)($metrics['baseline_samples'] ?? 0);
+$bsmetrics = (int)($metrics['baseline_metrics'] ?? 0);
+$bscontext = (string)($metrics['baseline_contexttype'] ?? 'other');
 switch ($bs) {
     case 'stable':
         $bslabel = get_string('baselinestable', 'plagiarism_essayguard', $bssamples);
@@ -224,11 +254,57 @@ switch ($bs) {
         $bstc    = '#6b7280';
         break;
 }
-echo '<div style="display:inline-block;padding:0.5rem 1rem;border-radius:6px;background:' . $bsbg
-    . ';margin-bottom:1.5rem;font-size:0.85rem;">';
+echo '<div style="display:block;padding:0.6rem 1rem;border-radius:6px;background:' . $bsbg
+    . ';margin-bottom:1.5rem;font-size:0.85rem;max-width:720px;">';
 echo '<span style="color:' . $bstc . ';font-weight:600;">'
     . get_string('baseline_confidence', 'plagiarism_essayguard') . ':</span>'
     . ' <span style="color:#374151;">' . s($bslabel) . '</span>';
+
+if ($bs === 'stable') {
+    echo '<div style="color:#374151;margin-top:0.35rem;">'
+        . s(get_string('baselinecontext', 'plagiarism_essayguard', $bscontext))
+        . '</div>';
+
+    // Show the measurements behind the comparison. A number a teacher can check beats a
+    // label they have to trust, and it is what an appeal will ask to see.
+    $bsdetail = (array)($metrics['baseline_detail'] ?? []);
+    $bsdrivers = (array)($metrics['baseline_drivers'] ?? []);
+    if (!empty($bsdrivers)) {
+        echo '<table class="generaltable" style="max-width:640px;margin-top:0.6rem;font-size:0.82rem;">';
+        echo '<tr><th style="padding:0.3rem 0.6rem;">'
+            . s(get_string('bl_measurement', 'plagiarism_essayguard')) . '</th>';
+        echo '<th style="padding:0.3rem 0.6rem;">'
+            . s(get_string('bl_thissubmission', 'plagiarism_essayguard')) . '</th>';
+        echo '<th style="padding:0.3rem 0.6rem;">'
+            . s(get_string('bl_theirusual', 'plagiarism_essayguard')) . '</th>';
+        echo '<th style="padding:0.3rem 0.6rem;">'
+            . s(get_string('bl_spread', 'plagiarism_essayguard')) . '</th>';
+        echo '<th style="padding:0.3rem 0.6rem;">'
+            . s(get_string('bl_sd', 'plagiarism_essayguard')) . '</th></tr>';
+        foreach ($bsdrivers as $bsname) {
+            if (!isset($bsdetail[$bsname])) {
+                continue;
+            }
+            $bd = $bsdetail[$bsname];
+            $bslabelkey = 'blmetric_' . $bsname;
+            $bsdisplay = get_string_manager()->string_exists($bslabelkey, 'plagiarism_essayguard')
+                ? get_string($bslabelkey, 'plagiarism_essayguard')
+                : $bsname;
+            echo '<tr>';
+            echo '<td style="padding:0.3rem 0.6rem;">' . s($bsdisplay) . '</td>';
+            echo '<td style="padding:0.3rem 0.6rem;">' . s((string)($bd['observed'] ?? '')) . '</td>';
+            echo '<td style="padding:0.3rem 0.6rem;">' . s((string)($bd['mean'] ?? '')) . '</td>';
+            echo '<td style="padding:0.3rem 0.6rem;">&plusmn;' . s((string)($bd['sd'] ?? '')) . '</td>';
+            echo '<td style="padding:0.3rem 0.6rem;font-weight:600;">' . s((string)($bd['z'] ?? '')) . '</td>';
+            echo '</tr>';
+        }
+        echo '</table>';
+    }
+} else {
+    echo '<div style="color:#374151;margin-top:0.35rem;">'
+        . s(get_string('baselinenotenough', 'plagiarism_essayguard'))
+        . '</div>';
+}
 echo '</div>';
 
 /* ── Indicators ──────────────────────────────────────────────────────────────── */
@@ -330,87 +406,19 @@ echo html_writer::end_tag('table');
 
 $signalbreakdown = isset($metrics['signal_breakdown']) ? $metrics['signal_breakdown'] : null;
 
-// Signal definitions: number → [name, max_pts, description].
-$signalinfo = [
-    1  => [get_string(
-        'sig1name',
-        'plagiarism_essayguard'), 60,
-            get_string('sig1desc',
-        'plagiarism_essayguard'
-    )],
-    2  => [get_string(
-        'sig2name',
-        'plagiarism_essayguard'), 20,
-            get_string('sig2desc',
-        'plagiarism_essayguard'
-    )],
-    3  => [get_string(
-        'sig3name',
-        'plagiarism_essayguard'), 30,
-            get_string('sig3desc',
-        'plagiarism_essayguard'
-    )],
-    4  => [get_string(
-        'sig4name',
-        'plagiarism_essayguard'), 20,
-            get_string('sig4desc',
-        'plagiarism_essayguard'
-    )],
-    5  => [get_string(
-        'sig5name',
-        'plagiarism_essayguard'), 15,
-            get_string('sig5desc',
-        'plagiarism_essayguard'
-    )],
-    6  => [get_string(
-        'sig6name',
-        'plagiarism_essayguard'), 25,
-            get_string('sig6desc',
-        'plagiarism_essayguard'
-    )],
-    7  => [get_string(
-        'sig7name',
-        'plagiarism_essayguard'), 10,
-            get_string('sig7desc',
-        'plagiarism_essayguard'
-    )],
-    8  => [get_string(
-        'sig8name',
-        'plagiarism_essayguard'), 10,
-            get_string('sig8desc',
-        'plagiarism_essayguard'
-    )],
-    9  => [get_string(
-        'sig9name',
-        'plagiarism_essayguard'), 5,
-            get_string('sig9desc',
-        'plagiarism_essayguard'
-    )],
-    10 => [get_string(
-        'sig10name',
-        'plagiarism_essayguard'), 10,
-            get_string('sig10desc',
-        'plagiarism_essayguard'
-    )],
-    11 => [get_string(
-        'sig11name',
-        'plagiarism_essayguard'), 10,
-            get_string('sig11desc',
-        'plagiarism_essayguard'
-    )],
-    12 => [get_string(
-        'sig12name',
-        'plagiarism_essayguard'), 10,
-            get_string('sig12desc',
-        'plagiarism_essayguard'
-    )],
-    13 => [get_string(
-        'sig13name',
-        'plagiarism_essayguard'), 50,
-            get_string('sig13desc',
-        'plagiarism_essayguard'
-    )],
-];
+// REGISTRY-EG-ONE-DEFINITION (v1.4.0): names, maxima and descriptions come from the
+// signal registry rather than a second hand-maintained copy here. The old table hardcoded
+// a Max column that ignored the paste-weight setting — on a site configured to award at
+// most 15 points for a paste it still printed 60 — and the README described nine signals
+// with different weights while the engine scored thirteen.
+$signalinfo = [];
+foreach (\plagiarism_essayguard\local\signals::definitions() as $egsignum => $egsigdef) {
+    $signalinfo[$egsignum] = [
+        get_string('sig' . $egsignum . 'name', 'plagiarism_essayguard'),
+        \plagiarism_essayguard\local\signals::max_points($egsignum),
+        get_string('sig' . $egsignum . 'desc', 'plagiarism_essayguard'),
+    ];
+}
 
 /**
  * Build evidence detail strings for a given signal number.
@@ -764,19 +772,15 @@ plagiarism_essayguard_render_signal_table($signalbreakdown, $sc, $metrics, $sign
 
 /* ── Per-question breakdown (quizzes with multiple essay questions) ───────────── */
 
-$questionrecords = $DB->get_records_sql(
-    "SELECT * FROM {plagiarism_essayguard_sc}
-      WHERE userid = :userid AND cmid = :cmid AND qslot > 0
-   ORDER BY qslot ASC, timemodified DESC",
-    ['userid' => $userid, 'cmid' => $cmid]
-);
-
+// FIX-EG-ONE-TRUTH (v1.2.234): per-question rows come from the same attempt as
+// the header score above, not from a separate unscoped query.
 $perquestion = [];
-foreach ($questionrecords as $qr) {
-    if (!isset($perquestion[(int)$qr->qslot])) {
-        $perquestion[(int)$qr->qslot] = $qr;
+foreach ($egbyslot as $egslot => $egrecord) {
+    if ((int)$egslot > 0) {
+        $perquestion[(int)$egslot] = $egrecord;
     }
 }
+ksort($perquestion);
 
 /* ── Load question texts + student answers from quiz DB ───────────────────── */
 // Retrieves question text (from question.questiontext) and student answer
@@ -785,14 +789,23 @@ foreach ($questionrecords as $qr) {
 $egquestiontexts  = [];  // Slot => plain-text question.
 $eganswertexts    = [];  // Slot => plain-text student answer.
 
-if (!empty($perquestion)) {
-    $akrow = $DB->get_record_sql(
-        "SELECT attemptkey FROM {plagiarism_essayguard_sc}
-          WHERE userid = :userid AND cmid = :cmid AND qslot > 0
-       ORDER BY timemodified DESC",
-        ['userid' => $userid, 'cmid' => $cmid],
-        IGNORE_MISSING
-    );
+// SEC-EG-QUIZ-CAPABILITY (v1.3.0): reading exam questions and a student's verbatim
+// answers requires a quiz capability, not just this plugin's own.
+//
+// plagiarism/essayguard:viewreport is a 'read' capability that db/access.php explicitly
+// anticipates sites granting to non-editing roles — a tutor, an external examiner. This
+// block rendered the full question text and the student's complete answer, so that
+// grant was silently handing out every student's exam answers without
+// mod/quiz:viewreports, mod/quiz:grade, moodle/grade:viewall or any other core check.
+// A plugin capability must not give wider access to core data than the core capability
+// that governs it.
+$egcanreadanswers = has_capability('mod/quiz:viewreports', $context)
+    || has_capability('mod/quiz:grade', $context)
+    || has_capability('moodle/grade:viewall', $context);
+
+if (!empty($perquestion) && $egcanreadanswers) {
+    // FIX-EG-ONE-TRUTH (v1.2.234): use the attempt already scoped above.
+    $akrow = reset($perquestion) ?: null;
     if ($akrow && preg_match('/^qa_(\d+)$/', (string)$akrow->attemptkey, $akm)) {
         $egqattemptid = (int)$akm[1];
         $egqaattempt = $DB->get_record('quiz_attempts', ['id' => $egqattemptid], 'uniqueid');
@@ -857,6 +870,19 @@ if (!empty($perquestion)) {
         $qlevel     = \plagiarism_essayguard\local\service\analyser::risk_level($qscore);
         $qc         = $riskcolours[$qlevel] ?? $riskcolours['low'];
 
+        // FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): a slot that captured no events was
+        // never assessed. Showing it as a green LOW tells the teacher the answer is
+        // fine when nothing was actually checked.
+        $egunmeasured = plagiarism_essayguard_is_unmeasured($qsc);
+        if ($egunmeasured) {
+            $qc = [
+                'bg'    => '#f3f4f6',
+                'text'  => '#4b5563',
+                'bar'   => '#9ca3af',
+                'label' => get_string('nodatabadge', 'plagiarism_essayguard'),
+            ];
+        }
+
         $qbarw     = min(100, $qscore);
         $badgestyle = 'display:inline-flex;align-items:center;gap:5px;padding:0.2rem '
             . '0.65rem;border-radius:4px;font-weight:700;font-size:0.82rem;background:' . $qc['bg']
@@ -887,7 +913,9 @@ if (!empty($perquestion)) {
             . get_string('questionlabel', 'plagiarism_essayguard', (int)$slot) . '</strong>';
 
         echo '<span style="margin-left:auto;display:flex;align-items:center;gap:1.5rem;font-size:0.83rem;color:#6b7280;">';
-        echo '<span><strong style="color:' . $qc['text'] . ';">' . $qscore . '</strong>/100</span>';
+        echo $egunmeasured
+            ? '<span style="color:#9ca3af;">&mdash;/100</span>'
+            : '<span><strong style="color:' . $qc['text'] . ';">' . $qscore . '</strong>/100</span>';
         echo '<span>' . get_string(
             'keystrokeslabel',
             'plagiarism_essayguard',
@@ -903,11 +931,19 @@ if (!empty($perquestion)) {
             'plagiarism_essayguard',
             number_format((float)($qsc->average_wpm ?? 0), 1)
         ) . '</span>';
-        echo '<span>' . get_string(
-            'typinglabel',
-            'plagiarism_essayguard',
-            round((int)($qsc->typing_time ?? 0) / 1000, 1)
-        ) . '</span>';
+        // FIX-EG-NO-DATA-HONESTY (v1.2.234): "Typing: 0 s" read as a measurement
+        // of this question when it actually means no events were ever attributed
+        // to the slot. Say which of the two it is.
+        $egnobehaviour = ((int)($qsc->total_keystrokes ?? 0) === 0)
+            && ((int)($qsc->paste_events ?? 0) === 0)
+            && ((int)($qsc->typing_time ?? 0) === 0);
+        echo '<span>' . ($egnobehaviour
+            ? get_string('notypingcaptured', 'plagiarism_essayguard')
+            : get_string(
+                'typinglabel',
+                'plagiarism_essayguard',
+                round((int)($qsc->typing_time ?? 0) / 1000, 1)
+            )) . '</span>';
         echo '<span style="color:#9ca3af;">&#9660; '
             . get_string('signalsword', 'plagiarism_essayguard') . '</span>';
         echo '</span>';
@@ -988,6 +1024,16 @@ if (!empty($perquestion)) {
 
         // Expandable signal breakdown body (hidden by default).
         echo '<div id="' . $bodyid . '" style="display:none;padding:1rem;">';
+
+        // FIX-EG-NO-DATA-HONESTY (v1.2.234): a per-question score computed with no
+        // behavioural events is a linguistic guess, not a measurement. Say so where
+        // the teacher reads the score, rather than letting it look like evidence.
+        if ($egunmeasured || $egnobehaviour) {
+            echo '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;'
+                . 'padding:0.6rem 0.9rem;margin-bottom:0.9rem;font-size:0.85rem;color:#92400e;">'
+                . s(get_string('nodatanotice', 'plagiarism_essayguard'))
+                . '</div>';
+        }
 
         // Visual bar for question score.
         echo '<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">';

@@ -71,12 +71,19 @@ class linguistic {
         $rarewordratio  = self::rare_word_ratio($text);
         $sentencecount   = count($sentencelengths);
 
+        $paragraphlengths  = self::paragraph_lengths($text);
+        $paragraphvariance = self::variance($paragraphlengths);
+        $transitiondensity = self::transition_density($text);
+
         return [
             'sentence_variance'    => round($sentencevariance, 4),
             'avg_sentence_length'  => round($avgsentencelength, 2),
             'sentence_count'       => $sentencecount,
             'vocab_diversity'      => round($vocabdiversity, 4),
             'rare_word_ratio'      => round($rarewordratio, 4),
+            'paragraph_count'      => count($paragraphlengths),
+            'paragraph_variance'   => round($paragraphvariance, 4),
+            'transition_density'   => round($transitiondensity, 4),
         ];
     }
 
@@ -267,12 +274,111 @@ class linguistic {
     }
 
     /**
+     * Word counts of each paragraph in the text.
+     *
+     * CLAIM-EG-PARAGRAPH (v1.4.0). The README has advertised "paragraph structure" as a
+     * signal since the first release and nothing computed it. Paragraph length variance
+     * is the sentence-variance idea one level up: generated prose tends to arrive in
+     * evenly-sized blocks, while written drafts have a short opener, a long middle and
+     * an uneven tail.
+     *
+     * Paragraph breaks are taken from blank lines, HTML block tags, or a single newline
+     * where the editor produced no blank line.
+     *
+     * @param string $text The submitted text, HTML or plain.
+     * @return int[] Word count per paragraph, paragraphs under three words dropped.
+     */
+    public static function paragraph_lengths(string $text): array {
+        // Convert block-level markup into newlines before stripping tags, so TinyMCE
+        // paragraphs are not silently concatenated into one run of prose.
+        $normalised = preg_replace(
+            '~<\s*/?\s*(p|div|br|li|h[1-6]|tr|blockquote)\b[^>]*>~i',
+            "\n",
+            $text
+        );
+        $normalised = strip_tags((string)$normalised);
+        $normalised = html_entity_decode($normalised, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $blocks = preg_split('/\n\s*\n|\n/u', $normalised) ?: [];
+
+        $lengths = [];
+        foreach ($blocks as $block) {
+            $words = self::tokens($block);
+            // A line of three words or fewer is a heading, a label or a stray break, not
+            // a paragraph. Counting them would make every answer look uneven.
+            if (count($words) > 3) {
+                $lengths[] = count($words);
+            }
+        }
+
+        return $lengths;
+    }
+
+    /**
+     * Discourse markers per 100 words.
+     *
+     * CLAIM-EG-TRANSITION (v1.4.0). The README has advertised "transition density" since
+     * the first release with nothing behind it. It is one of the better text-level tells
+     * for generated prose, which signposts its structure far more heavily than most
+     * student writing: however, furthermore, moreover, in addition, consequently.
+     *
+     * This is a property of the TEXT, not of the student, and it is the class of signal
+     * that penalises ESL writers and templated VET answers. It is deliberately scored as
+     * corroboration only — see the signal registry — and never pushes a submission into
+     * the high band on its own.
+     *
+     * @param string $text The submitted text.
+     * @return float Markers per 100 words; 0.0 for text under 40 words.
+     */
+    public static function transition_density(string $text): float {
+        $plain  = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $tokens = self::tokens($plain);
+        $total  = count($tokens);
+
+        // Below about 40 words the ratio is dominated by whether one marker happens to
+        // appear, so it says nothing.
+        if ($total < 40) {
+            return 0.0;
+        }
+
+        $lower = \core_text::strtolower($plain);
+
+        $single = [
+            'however', 'furthermore', 'moreover', 'additionally', 'consequently',
+            'therefore', 'thus', 'hence', 'nevertheless', 'nonetheless', 'conversely',
+            'similarly', 'likewise', 'accordingly', 'subsequently', 'ultimately',
+            'specifically', 'notably', 'importantly', 'overall', 'firstly', 'secondly',
+            'thirdly', 'finally',
+        ];
+        $phrases = [
+            'in addition', 'in conclusion', 'in summary', 'for instance', 'for example',
+            'as a result', 'on the other hand', 'in contrast', 'by contrast',
+            'it is important to note', 'it is worth noting', 'in other words',
+            'to summarise', 'to summarize', 'in particular', 'as such',
+            'in terms of', 'with regard to', 'in this context',
+        ];
+
+        $count = 0;
+        foreach ($single as $word) {
+            $count += preg_match_all('/\b' . preg_quote($word, '/') . '\b/u', $lower);
+        }
+        foreach ($phrases as $phrase) {
+            $count += substr_count($lower, $phrase);
+        }
+
+        return ($count / $total) * 100.0;
+    }
+
+    /**
      * The zeroed metric set returned when there is no text to analyse.
      *
      * @return array Every linguistic metric at its neutral value.
      */
     private static function empty_metrics(): array {
         return [
+            'paragraph_count'     => 0,
+            'paragraph_variance'  => 0.0,
+            'transition_density'  => 0.0,
             'sentence_variance'   => 0.0,
             'avg_sentence_length' => 0.0,
             'sentence_count'      => 0,

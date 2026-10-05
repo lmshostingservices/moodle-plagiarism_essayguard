@@ -1,5 +1,483 @@
 # Changelog
 
+## 1.4.0 - 2026-10-05
+
+**Building the claims, instead of deleting them**
+
+Version: `2026100700`. Schema change: new table `plagiarism_essayguard_fpm`.
+
+v1.3.0 established that six claims in the README described a product the code did not
+implement. Rather than striking them out, this release builds four of them, reframes one
+honestly, and makes the sixth structurally impossible to get wrong again.
+
+### The comparative baseline is now real
+
+This was the headline claim — "compared against the student's own historical baseline" —
+and the mechanism could not support it. The old baseline stored one point estimate per
+metric and compared it against a **fixed plus-or-minus 50 percent tolerance, identical for
+every student and every measurement**. Without a per-student spread there is no way to
+tell a genuine anomaly from a student whose typing speed simply moves that much week to
+week. An EWMA with a half-life of 2.4 samples was labelled "stable" at five.
+
+The new `plagiarism_essayguard_fpm` table keeps Welford's running mean and M2 per
+(student, activity type, metric). Deviation is a z-score in that student's own standard
+deviations, for that measurement, in that kind of activity.
+
+Four properties, each covered by a test that states it as a requirement rather than
+recording current output:
+
+- **A student with no history is never compared.** Nothing is reported until at least
+  three measurements have eight submissions behind them.
+- **A typical submission from an established student scores zero.**
+- **Consistency is not punished.** The spread is floored at 5 % of the mean, so a
+  metronomic writer cannot have trivial changes read as enormous deviations — otherwise
+  the most regular students would be the most suspected.
+- **Quiz history never answers for an assignment.** The distributions are different and
+  pooling them inflates the variance until nothing can deviate from it.
+
+Explanations now come from the same z-scores the score came from, so a sentence appears
+only for a measurement that actually contributed, and it quotes the numbers: what this
+submission measured, what the student usually measures, their spread, and how many
+submissions are behind it. The student page shows that table directly, which is what an
+appeal will ask to see.
+
+### Two advertised signals now exist
+
+**Transition density** (Signal 14) counts discourse markers per 100 words — however,
+furthermore, in addition, consequently. Generated prose signposts its structure far more
+heavily than most student writing. Measured on a deliberately marker-heavy generated
+sample: 16.7 per 100 words; on unstructured human writing: 0.0.
+
+**Paragraph uniformity** (Signal 15) is sentence variance one level up. Generated prose
+arrives in evenly sized blocks; a written draft has a short opener, a long middle and an
+uneven tail. Requires three paragraphs — variance across two is not a measurement, and the
+single-sentence tautology this engine used to commit is not repeated.
+
+Both are **writing-style** signals, and they are capped. Signals 8, 9, 14 and 15 together
+could reach 35 points, past the Medium threshold; they are now bounded at 20 between them.
+The innocent explanations for uniform, heavily signposted prose — a second-language
+writer, a formal house style, a templated answer the training package asks for — are at
+least as common as the guilty one, so style can corroborate a behavioural finding and
+never produce one alone.
+
+### "Manually retyped" is reframed, not built
+
+The claim was that Essay Guard detects AI text that was retyped. Nothing could do that,
+and nothing can: if a person types the words, they were typed, and no keystroke signal
+distinguishes retyped AI text from a student retyping their own handwritten notes.
+
+What is observable is whether typing looks like **composition** or **transcription**, and
+Signal 16 now measures it — using focus and blur events that have been captured since the
+first release and were read by nothing. It fires on repeated window switching, with almost
+no revision, at a steady rhythm. The teacher-facing text says plainly that this indicates
+copying from something on screen and **does not indicate what the source was**.
+
+### One definition of what the plugin measures
+
+`classes/local/signals.php` is now the single registry. Before it, the signal set was
+described in four places that had drifted: the scoring branches, a hardcoded "Max" column
+in the student page that ignored the paste-weight setting (printing 60 on a site
+configured to award at most 15), the language strings, and a README table listing nine
+signals with the wrong weights while the engine scored thirteen. A teacher cross-checking
+the breakdown against the vendor's own documentation found different numbers.
+
+Every surface now reads from the registry, including the README table, and each signal
+carries its evidence class — observed, behavioural, writing style, or comparative.
+
+### README
+
+The claims section is rewritten to describe what the code does, and an **Honest limits**
+section added: the score is not calibrated and has no published false-positive rate; a
+determined student can defeat the telemetry; assistive technology can resemble the
+patterns measured; and an attempt with no telemetry is reported as not assessed rather
+than as low risk. Price corrected to $5 USD / 50 credits.
+
+### Behaviour changes
+
+1. Comparative points no longer apply until a student has eight submissions in that
+   activity type with at least three comparable measurements. Expect fewer baseline
+   points, and the ones that remain to be defensible.
+2. Existing fingerprint rows are not migrated — the old point estimates cannot yield a
+   variance. Statistics accumulate from the next submission on; comparative scoring
+   resumes once the thresholds are met.
+3. Three new signals can fire, bounded as described above.
+4. The "Max" column in the breakdown now reflects the site's paste-weight setting.
+
+## 1.3.0 - 2026-10-05
+
+**Full audit: security, privacy, detection, defensibility**
+
+Version: `2026100600`. Schema change: three indexes added to the telemetry table.
+
+This release is the result of a line-by-line audit of the whole plugin across five
+areas. It fixes a complete bypass of the product's core function, stops keystroke
+capture that was happening with no disclosure and no master-switch check, removes
+several ways an honest student could be reported as a cheat, and takes out the
+detection claims the engine could not support.
+
+Read the "Behaviour changes" section before upgrading a live site. Some scores will
+move, and some badges that were green will become "Not assessed".
+
+### Security
+
+**A student could erase their own risk evidence.** Both web services validated the
+attempt key negatively: a key matching `qa_<digits>` had to resolve to an attempt owned
+by the caller, and **anything else was accepted unconditionally**. A student scored HIGH
+could call `finalize_attempt` with `attemptkey` `"clean1"` and a plausible essay; that
+inserted a fresh score row, which `scope_to_current_attempt()` then elected as "the
+current attempt", hiding the real evidence from the badge, the class report and the
+student page. Repeatable after every teacher visit. Attempt keys are now validated
+positively against the only two forms a user can legitimately own, and the quiz attempt
+check verifies the activity as well as the owner.
+
+**`finalize_attempt` had no size limit and no throttle**, while its cheaper sibling was
+carefully capped. Submitted text is capped at 50,000 characters and calls are throttled
+to one per activity per 10 seconds.
+
+**Licence calls did not verify TLS.** Moodle's curl wrapper resets
+`CURLOPT_SSL_VERIFYPEER` to 0, and `VERIFYHOST` without `VERIFYPEER` verifies nothing,
+so an attacker on the path could present any certificate and harvest the site's API key
+from the query string. Peer verification is now explicit on all three calls and
+redirects are refused.
+
+**`student.php` disclosed exam questions and verbatim answers** to anyone holding only
+`plagiarism/essayguard:viewreport` — a read capability `db/access.php` explicitly
+anticipates granting to tutors and external examiners — with no quiz capability check.
+A core quiz capability is now required for that block.
+
+**The footer badge count ignored separate groups**, the one surface the v1.2.219-224
+group sweep missed.
+
+### Privacy
+
+**Moodle's `$CFG->enableplagiarism` master switch was ignored by the entire capture
+path.** On a site where the administrator had never switched the plagiarism subsystem on
+— which is the default — the tracker was injected and every keystroke recorded, while
+core suppressed both the output and the student disclosure. Full collection, no output,
+no notice. The plugin's own install message said "Essay Guard will not run until
+Moodle's plagiarism subsystem is switched on", which was not true. Now enforced in
+`inject_tracker()` and in all three web services.
+
+**Capture was not limited to supported activity types.** `inject_tracker()` runs from a
+head hook on every page of the site and its only module gate was "is there a course
+module". Combined with the tracker binding any textarea outside a `.que` container,
+keystrokes were recorded in wikis, glossaries, databases, lesson pages and comment
+boxes. Now gated on `supports_mod()`.
+
+**Quizzes never showed the student disclosure.** Core calls
+`plagiarism_print_disclosure()` from the assign and forum forms only; mod_quiz has no
+such integration, and the quiz attempt page is where this plugin does nearly all of its
+capturing. The plugin now renders the notice itself on quiz attempt pages.
+
+**The telemetry table was a transcript of everything the student typed.** Each keydown
+stored `e.key` — the literal character — so `payloadjson` could be replayed to recover
+the text, including text the student typed and then deleted. Nothing in the analyser
+ever read it: every signal uses timings, counts and lengths. It is no longer recorded.
+
+**The subject-access export withheld the events.** `get_metadata()` declared
+`payloadjson` and the export returned four summary numbers, which is a GDPR Art. 15(1)
+failure on the one record a student exercising their rights would be asking about. The
+events are now exported.
+
+**The behavioural profile was kept forever.** `plagiarism_essayguard_fp` is a
+per-student writing profile used to judge whether a later submission looks like the same
+person. Raw events were pruned; this was not, not even on course-module deletion, and
+the disclosure did not mention it existed. Profiles now expire with the scores they
+describe, and the disclosure says so.
+
+The disclosure also now covers assistive technology, and tells students they can ask
+what was recorded and disagree with the result.
+
+### Detection: false positives
+
+**Dictation, screen readers, predictive text and Ctrl+Z were scored as pasting.** The
+tracker emitted `large_insert` for any insertion over 20 characters regardless of cause,
+and the analyser treats that as equivalent to a clipboard paste — full Signal 1 plus the
+paste-session bonuses. Measured on the old engine: speech-to-text scored **100 / HIGH**;
+one undo restoring a deleted paragraph scored **38 / MEDIUM**. A screen-reader user
+emits no keydown events at all, so they were classified as a pure paste session by
+construction. The browser reports the cause in `inputType` and the tracker was capturing
+it and throwing it away. Undo, redo, composition, dictation and autocorrect no longer
+produce a paste signal, on both the client and the server.
+
+**The false-positive cap was withheld from the typists it was written to protect.** It
+only applied when inter-key standard deviation was 100 ms or more; a fluent touch typist
+sits around 45 ms, and the plugin's own honest-typist fixture measures 44.1 ms. The more
+even your typing, the less protected you were. Rhythm is now judged by the Shannon
+measure, which actually separates humans from machines (below).
+
+**One paste was counted six times.** Signals 3-7 are five more descriptions of the same
+paste — of course there were no corrections, no pauses and no rhythm; nobody typed. The
+code said so in a comment and added them all anyway, producing a pre-cap total of 160
+for both a 120-character paste and an 8,000-word pasted essay, both displayed as 100/100
+with 60 points of invisible headroom. Their combined contribution is now capped, so the
+total stays inside the scale it is printed on.
+
+**A paste of unknown size was scored as maximum.** `insertlen` is 0 whenever the browser
+refuses the clipboard read, which is ordinary inside a cross-origin TinyMCE iframe — the
+most common editor configuration, not an edge case. It awarded the full 60 and called it
+conservative. It is now the MEDIUM floor.
+
+**A one-sentence answer was treated as maximally suspicious.** Variance is undefined on a
+single data point; the old code converted *undefined* into the full uniformity penalty
+and told the teacher "sentence lengths are unusually uniform throughout the submission".
+Three sentences are now required before uniformity means anything.
+
+**`thinking_pause_score`** counted pauses of 800-2000 ms and then gated the result on a
+counter of pauses over 2000 ms, forcing it to zero in exactly the case it describes.
+
+### Detection: the engine had no working automation detector
+
+Signal 7's Shannon entropy normalised against the number of buckets the sample happened
+to occupy, which makes the result approach 1.0 for any near-uniform distribution however
+narrow. Measured over 200 samples, the old formula gave 0.972 for a human at 140±50 ms
+and **0.986 for a bot at 100 ms ±3 ms** — the bot scored higher, and the 0.35 threshold
+was unreachable by anything. The SD-based branch below it was dead code for any session
+with rhythm data. Meanwhile teachers were being shown "Robotic keystroke entropy".
+
+Normalising against a fixed reference range fixes it. Measured after the change:
+
+| Profile | Shannon |
+|---|---|
+| Very fast consistent typist (110±25 ms) | 0.424 |
+| Fast typist (140±45 ms) | 0.583 |
+| Average typist (200±80 ms) | 0.702 |
+| Careful writer (350±200 ms) | 0.868 |
+| Scripted input, 5 ms jitter | 0.177 |
+| Scripted input, 15 ms jitter | 0.291 |
+| Scripted input, no jitter | 0.000 |
+
+The existing 0.35 threshold now separates the two populations with the most consistent
+human profile still clearing it by a wide margin.
+
+### Defensibility
+
+**An attempt where nothing was captured was reported as a finding.** The `unmeasured`
+guard required `empty($signal_pts)`, but Signal 13 and the linguistic fallback both fire
+*specifically* when no events were captured — so they populated the array and suppressed
+the honesty flag. A quiz where the tracker never loaded, and where the student types at
+60-120 wpm, scored MEDIUM or HIGH. "We did not observe this student" is not evidence of
+anything: when no behavioural event is captured, nothing is now reported.
+
+**The explainer had no `unmeasured` branch**, so such an attempt stored "This submission
+was flagged by the combined behavioural and linguistic checks" — the plugin asserting
+that a submission was flagged by checks that never ran, written into the record and
+rendered to teachers under the heading "Indicators".
+
+**Baseline deviation was awarded with no baseline.** `deviation_score()` had no
+sample-count gate, so up to 15 points were added from the student's second submission
+onward — and after the false-positive cap, which made it the main route by which a
+capped honest typist became MEDIUM. The student page printed "Baseline Confidence: No
+baseline yet" and "deviates significantly from this student's baseline" on the same
+screen. A stable baseline is now required.
+
+**The published bands did not match the code.** The Interpretation Guide said HIGH
+65-100 and MEDIUM 30-64; the engine uses 66 and 30-65. A score of exactly 65 was MEDIUM
+in the engine and HIGH in the document the plugin prints as its own key.
+
+**The student detail page still showed a green LOW for unmeasured attempts** — the one
+surface the v1.2.227/234 work never reached, and the page that serves as the evidence
+document. **The class report showed "NO DATA" and "LOW" in adjacent columns of the same
+row**, the fix defeated by a stale variable one line above it. **The grading badge said
+"Essay Guard is analysing this submission, reload in a moment"** about a final record,
+while `render_badge()`'s purpose-built `unmeasured` state sat unused.
+
+**Two of the six stat cards on the class report were hardcoded zeros.** "Pending: 0" and
+"Errors: 0" rendered regardless of the data, so an activity where the tracker failed for
+a third of the cohort produced a clean, confident, entirely green report. Replaced with
+a real "Not assessed" count — the number an auditor asking "how do you know you checked
+everyone?" actually needs.
+
+**The JavaScript badge failed green.** An unrecognised risk level rendered a green badge
+labelled "Original" — reassuring, and borrowing Turnitin's word for "this is the
+student's own work", on a value the code did not understand. `render_badge()` in PHP
+deliberately does the opposite.
+
+**Indefensible strings rewritten.** "Superhuman typing speed" fired at 96 wpm and
+appeared as the bare value of the Primary Signal column beside a named student.
+"Robotic keystroke entropy" asserted automation and was also mislabelled (Signal 12 is
+the keystroke ratio, not entropy). "No thinking pauses detected — unusual for original
+composition" stated the accusation as a measurement. "Zero corrections recorded" was
+only reachable when no keystrokes were captured, where it means "we recorded nothing",
+and it was printed in a column headed Evidence. Also "paste suspected", "implausibly
+constant", "consistent with programmatic or auto-generated text input", and
+"Writing behaviour appears consistent with normal student patterns", which overclaims in
+the exonerating direction and would be quoted straight back by the next student whose
+pasted answer scored LOW.
+
+### Wrong badges
+
+**The call-order slot fallback is removed.** It assigned a question slot by counting
+`get_links()` calls — the Nth call was taken to be the Nth question. An integrity
+judgement assigned by coincidence, resting on an assumption about core's render order
+that is not part of any API contract, with nothing detecting when it broke. One extra
+call on the page shifted every question by one. Patched four times in fifteen releases
+without being removed. When the slot cannot be determined, no badge is shown.
+
+**`get_badges.php` was running a fourth, contradictory selection rule** — the
+higher-of-two rule that v1.2.93 identified as wrong and removed from `lib.php` — with no
+attempt scoping, on the quiz grading overview, the page teachers use most. It now uses
+the shared rule and the shared overall score.
+
+**The tracker invented question slots.** When tagging failed for every field it assigned
+sequential numbers by position and called finalize once per invented slot, so the server
+wrote per-question rows for slots 1..N while every event carried slot 0 — rows scored
+from no evidence, which is exactly the "Q2: LOW 0/100, 0 keystrokes, Typing 0 s" record
+a teacher reads as clean. The numbers were positional on the current page, so on a page
+showing questions 3 and 4 it wrote rows for slots 1 and 2. Removed.
+
+### Tracker
+
+- **Infinite recursion on focus/blur in every TinyMCE editor.** The relay listeners were
+  registered on the document in the capture phase with the body as their target, and
+  capture-phase listeners fire for non-bubbling events — so the handler re-triggered
+  itself until the stack blew, and on unwind every level enqueued an event, overrunning
+  the queue and discarding real keystrokes. Re-entry guard added.
+- **"Events are guaranteed in the database before scoring" was false.** A single
+  `flush()` sends at most 500 events and resolves, and returns an older in-flight
+  promise if one exists. The submit path now drains the queue.
+- **The unload beacon sent the newest events and dropped the oldest** — the start of the
+  answer, which is what the signals need. Now sends the oldest undelivered slice.
+- **Any throw after `preventDefault()` permanently blocked submission** — the student
+  could never submit, forever, because the intercepted flag was already set. Wrapped.
+- **`field.value || field.textContent`** treated an empty value as falsy and fell back to
+  the server-rendered original, so a student who cleared their answer had the old text
+  scored.
+- **CJK input produced almost no keystrokes**, because composing keystrokes report key
+  "Process" and were skipped — the exact signature the engine reads as pasting.
+- Selection tracking never fired in rich-text editors (wrong window). Stale
+  `boundFrames` entries on editor re-init collected the same text twice. Timers never
+  restarted after a bfcache restore. Submit buttons added after interception were never
+  bound. Word counting re-scanned the whole answer on every keystroke.
+
+### Performance
+
+- Three indexes on the telemetry table: `timecreated` (the nightly cleanup scanned the
+  whole table twice without it), a covering index for the scoring lookup, and
+  `contextid` (every GDPR erasure was a full scan of the largest table in the plugin).
+- The cleanup task deleted every expired row in one unbounded statement. At roughly two
+  rows per keystroke, one 500-student three-essay sitting is of the order of seven
+  million rows. Now batched with a time budget, so a slow night prunes less instead of
+  failing every night while the table grows.
+- Scoring read the full event set once per slot — four complete passes for a three-essay
+  quiz, synchronously, inside the student's submit request. Now read once per request.
+- The class report selected two TEXT blobs per row for every student with no pagination.
+  Explicit column list.
+
+### Behaviour changes to expect
+
+1. Attempts with no captured telemetry report **NOT ASSESSED** instead of a score. Some
+   previously-green badges will change. That is the point: they were never checked.
+2. Paste scores come down somewhat (derived signals capped; unknown-size pastes at the
+   MEDIUM floor). A genuine paste still reaches HIGH.
+3. Honest fast typists come down sharply. The old engine put a fluent typist with no
+   corrections at MEDIUM and the test suite asserted that as correct.
+4. Baseline points no longer apply until a student has five submissions.
+5. Badges disappear from pages where the slot cannot be determined, rather than showing
+   a guessed one. Use the class report for those.
+6. Keystroke characters are no longer recorded. Existing rows still contain them; run
+   the cleanup task to expire them, or clear the table if you want them gone now.
+7. **On a site where Moodle's plagiarism subsystem was never switched on, the plugin now
+   stops collecting entirely.** If capture silently stops after this upgrade, that is
+   why: switch on Site administration > Advanced features > Enable plagiarism plugins.
+
+### Still outstanding
+
+The scoring scale has never been calibrated against labelled real submissions, so there
+is no published false-positive rate. The strings and the bands are now honest about what
+a signal is, but the only thing the engine measures with confidence is bulk insertion.
+Evasion remains straightforward for a determined student: retyping AI text is
+indistinguishable from writing, and the telemetry is client-supplied and can be forged by
+anyone who opens dev tools. Treat the output as corroborating evidence, never as proof.
+
+## 1.2.234 - 2026-10-05
+
+**Three display surfaces, one set of numbers**
+
+Version: `2026100500`. No schema change. Fixes two reproducible wrong-badge reports
+from live use and the misleading "0 seconds" typing figure.
+
+### Fixed - a question badged HIGH on the attempt page and LOW in the report
+
+Four separate causes, all in the display layer. The stored scores were correct
+throughout; every one of these was a reading error.
+
+1. **No page filtered score records by attempt.** `lib.php`, `report.php` and
+   `student.php` each kept "the newest row per (userid, qslot)" across every
+   attempt the student had ever made. Q1 from attempt 2 could be shown beside Q2
+   from attempt 1, and a rescore of an old attempt bumped its `timemodified` and
+   made it win. All three now scope to one attempt through
+   `plagiarism_essayguard_scope_to_current_attempt()`.
+
+2. **The ordering was not deterministic.** Per-question rows are written in the
+   same second by the observer loop, and the queries ordered on `timemodified`
+   alone. With equal timestamps the database may return tied rows in any order,
+   and the three queries were worded differently - so two pages could legitimately
+   select different rows from identical data. Ordering is now
+   `timemodified DESC, id DESC` everywhere.
+
+3. **The content-based slot matcher preferred an unclaimed slot over a better
+   match.** Where Q2's text matched slot 2 at 95 % and slot 1 at 62 %, and slot 2
+   had already been claimed earlier in the page render, it returned slot 1 - and
+   the badge showed Q1's score under Q2. Match quality now decides; the claim only
+   breaks ties between candidates within five points of each other.
+
+4. **lib.php and report.php each carried their own copy of the per-question
+   fallback rule.** The copies were written eight versions apart and had drifted.
+   There is now one implementation,
+   `plagiarism_essayguard_resolve_question_record()`, and both call it.
+
+### Fixed - a two-question quiz with one HIGH question showed three different overalls
+
+"Overall" was defined three times. The grading badge used the attempt-level
+record, which `FIX-EG-AGG-PERQ-CONSISTENCY` may have silently raised to the worst
+per-question score; the class report averaged the per-question scores; the student
+page used the raw `qslot=0` row. On a quiz scoring 100 and 0 those rules give HIGH,
+MEDIUM and HIGH from the same data. `plagiarism_essayguard_overall_score()` is now
+the only definition and all three pages call it. The rule is the highest
+per-question score, stated in one place in `lib.php` and changeable to the mean on
+one line.
+
+### Fixed - an elevated aggregate could rescue an unrelated question
+
+When a question captured no events of its own, the attempt-level record could be
+substituted for it if that record looked like paste evidence. But an aggregate
+elevated to match the worst question is not independent evidence - so Q1's HIGH
+was copied onto Q2, which is one half of the wrong-badge report above. Records
+carrying `agg_elevated_from_perq` are no longer accepted as a fallback.
+
+### Fixed - "Typing: 0 s" on a question that was typed
+
+Zero typing time does not mean the student typed for zero seconds. It means no
+events were ever attributed to that slot, so the score came from text analysis
+alone. The per-question card now reads "Typing: not captured" and carries a notice
+saying the score is weak evidence. Scores also record `event_count`, so a slot that
+captured nothing is distinguishable from a fast, clean typist.
+
+### Fixed - "Avg WPM: 17,818.5"
+
+When no WPM snapshots exist, average WPM was estimated as final-text word count
+divided by measured typing time. On a pasted answer the text arrives whole while
+typing time is a fraction of a second, so the division produced figures like
+17,818 wpm on a teacher-facing report. The fallback now requires at least five
+keystrokes and five seconds of typing time, and rejects any result above 300 wpm.
+
+### Fixed - a question that was never assessed was badged LOW
+
+A slot whose events were never attributed to it scores 0 and rendered as a green
+LOW - the same badge an honest typist earns. Live example: Q1 HIGH 100/100 with
+two pastes, Q2 LOW 0/100 with zero keystrokes, zero pastes and zero typing time.
+Q2 was not checked; the report said it was fine. Such records now render as
+NO DATA on the student page and the class report, and as a pending badge in the
+grading screen, with a notice saying the question is unchecked.
+
+### Known - the slot-tagging failure behind the missing events
+
+These fixes stop the wrong number being displayed. They do not fix the underlying
+cause of empty per-question slots, which is `tracker.js` failing to tag events with
+a question slot in some editor configurations. That is the next thing to chase,
+and the new `event_count` metric is how to find the affected attempts.
+
 ## 1.2.233 - 2026-09-07
 
 **Moodle 4.4 restored as the supported floor**

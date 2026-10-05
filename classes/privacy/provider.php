@@ -343,6 +343,45 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
                 );
             }
 
+            // FIX-EG-PRIVACY-EXPORT-PAYLOADS (v1.3.0): export the events themselves,
+            // not only a count of them.
+            //
+            // get_metadata() declares that payloadjson is stored, and then the subject
+            // access export returned four summary numbers and withheld it. That is a
+            // GDPR Art. 15(1) failure on the one field a student exercising their rights
+            // would actually be asking about — and it was the most detailed record the
+            // plugin holds about them. (As of v1.3.0 the payloads no longer contain the
+            // characters typed, only timings, counts and lengths; they are still the
+            // student's personal data and still have to be exportable.)
+            $rawevents = $DB->get_records(
+                'plagiarism_essayguard_ev',
+                ['contextid' => $context->id, 'userid' => $userid],
+                'eventtime ASC',
+                'id, attemptkey, eventname, eventtime, payloadjson'
+            );
+            $eventsbyattempt = [];
+            foreach ($rawevents as $ev) {
+                $eventsbyattempt[$ev->attemptkey][] = [
+                    'eventname' => $ev->eventname,
+                    'eventtime' => \core_privacy\local\request\transform::datetime(
+                        self::event_time_to_seconds((int)$ev->eventtime)
+                    ),
+                    'payload'   => json_decode($ev->payloadjson ?? '{}', true),
+                ];
+            }
+            foreach ($eventsbyattempt as $akey => $evlist) {
+                writer::with_context(
+                    $context)->export_data(
+                        [
+                        get_string('pluginname', 'plagiarism_essayguard'),
+                        get_string('privacy:export:telemetry', 'plagiarism_essayguard'),
+                        $akey,
+                        get_string('privacy:export:events', 'plagiarism_essayguard'),
+                        ],
+                    (object)['events' => $evlist]
+                );
+            }
+
             // Export raw telemetry event counts (not raw payloads) for this context.
             $counts = $DB->get_records_sql(
                 "SELECT attemptkey, COUNT(id) AS eventcount, MIN(eventtime) AS first_event, MAX(eventtime) AS last_event

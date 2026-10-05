@@ -311,6 +311,13 @@ class observer {
             // not from individual question scores, to avoid skewing the profile.
             if ($qslot === 0) {
                 fingerprint::update($userid, $result['metrics']);
+
+                // BASELINE-EG-WELFORD (v1.4.0): also fold the submission into the
+                // per-metric running statistics that comparative scoring reads. The
+                // activity type comes from the metrics the scorer resolved, so the two
+                // sides always partition the same way.
+                $contexttype = (string)($result['metrics']['baseline_contexttype'] ?? 'other');
+                fingerprint::update_statistics($userid, $contexttype, $result['metrics']);
             }
         } catch (\Throwable $e) {
             // Never let scoring errors break submission. Log silently.

@@ -102,11 +102,21 @@ if ($groupmode == SEPARATEGROUPS && !has_capability('moodle/site:accessallgroups
     }
 }
 
+$egidentityfields = explode(',', (string)($CFG->showuseridentity ?? ''));
+$egshowemail = in_array('email', $egidentityfields, true)
+    && has_capability('moodle/site:viewuseridentity', $context);
+
 /* ── Load scores ─────────────────────────────────────────────────────────────── */
 // Load ALL records (aggregate + per-question), group by user, keep most recent per (user, qslot).
 // FIX-EG-REPORT-PERQ (v1.2.69): Per-question rows are kept so teachers see per-Q breakdown.
 $scores = $DB->get_records_sql(
-    "SELECT sc.*,
+    // PERF-EG-REPORT-COLUMNS (v1.3.0): sc.* pulled metricsjson AND explanationsjson —
+    // two TEXT blobs of several KB — for every row of every student, aggregate and
+    // per-question, with no pagination. On a 500-student three-essay activity that is
+    // ~2,000 rows of blob hydrated into PHP to render a table. The same fix was applied
+    // to the get_links() preload in v1.2.219 and never carried across to the report.
+    "SELECT sc.id, sc.userid, sc.cmid, sc.qslot, sc.attemptkey, sc.riskscore, sc.risklevel,
+            sc.metricsjson, sc.timemodified, sc.typing_time, sc.total_keystrokes, sc.paste_events,
             u.firstname, u.lastname, u.email, u.username, u.picture, u.imagealt,
             u.firstnamephonetic, u.lastnamephonetic, u.middlename, u.alternatename
        FROM {plagiarism_essayguard_sc} sc
@@ -116,13 +126,17 @@ $scores = $DB->get_records_sql(
     array_merge(['cmid' => $cmid], $groupparams)
 );
 
-$byuser = [];
+// FIX-EG-ONE-TRUTH (v1.2.234): scope each student to a single attempt using the
+// shared rule in lib.php. Previously this page kept the newest row per
+// (userid, qslot) with no attempt filter, so a student with two attempts could
+// be shown Q1 from one attempt beside Q2 from another.
+$rowsbyuser = [];
 foreach ($scores as $sc) {
-    $uid  = (int)$sc->userid;
-    $slot = (int)($sc->qslot ?? 0);
-    if (!isset($byuser[$uid][$slot])) {
-        $byuser[$uid][$slot] = $sc;
-    }
+    $rowsbyuser[(int)$sc->userid][] = $sc;
+}
+$byuser = [];
+foreach ($rowsbyuser as $uid => $userrows) {
+    $byuser[$uid] = plagiarism_essayguard_scope_to_current_attempt($userrows);
 }
 
 $display = [];
@@ -135,44 +149,17 @@ foreach ($byuser as $uid => $records) {
     $display[]   = $main;
 }
 
-// FIX-EG-REPORT-AVG (v1.2.208): Compute the student's displayed overall score as the
-// mean of their per-question scores (qslot > 0) when they exist, rather than using the
-// raw qslot=0 aggregate record directly.  The aggregate is scored by pooling ALL keystroke
-// events together and can differ from the per-question averages — e.g. two questions at
-// 15% and 20% would show as 20% (the aggregate's pooled score) instead of 17.5%.
-// Fall back to the aggregate only when no per-question records are present (assignments,
-// forums, or single-question quizzes where qslot detection wrote only qslot=0).
 foreach ($display as $sc) {
-    $pqscores = [];
-    if (!empty($sc->_perq)) {
-        foreach ($sc->_perq as $slot => $r) {
-            if ((int)$slot > 0 && isset($r->riskscore)) {
-                // Apply the same aggregate-fallback rule used in lib.php and in the
-                // per-question breakdown below, so the overall average is consistent
-                // with what is shown in the individual question rows.
-                $pqscore = (float)$r->riskscore;
-                if ($pqscore <= 0.0 && isset($sc->_perq[0])) {
-                    $aggr   = $sc->_perq[0];
-                    $aggmet = !empty($aggr->metricsjson) ? (json_decode($aggr->metricsjson, true) ?: []) : [];
-                    $aggs1  = (int)(($aggmet['signal_breakdown'][1] ?? 0));
-                    if ($aggs1 >= 30 || (float)$aggr->riskscore >= 0.70) {
-                        $pqscore = (float)$aggr->riskscore;
-                    }
-                }
-                $pqscores[] = $pqscore;
-            }
-        }
-    }
-    if (!empty($pqscores)) {
-        $sc->_overall = array_sum($pqscores) / count($pqscores);
-    } else {
-        $sc->_overall = isset($sc->riskscore) ? (float)$sc->riskscore : 0.0;
-    }
+    // FIX-EG-ONE-TRUTH (v1.2.234): the overall score now comes from the single
+    // definition in lib.php. This page used to average the per-question scores
+    // while the grading badge used the attempt-level record, so a quiz scoring
+    // 100 and 0 was MEDIUM here and HIGH there from identical data.
+    $sc->_overall = plagiarism_essayguard_overall_score($sc->_perq ?? []);
 }
 
 // Sort: highest risk first, then score desc, then alphabetical.
 // FIX-EG-BADGE-LEVEL (v1.2.71): Re-derive level from score, not stale DB column.
-// FIX-EG-REPORT-AVG (v1.2.208): Sort on computed average, not raw aggregate riskscore.
+// FIX-EG-ONE-TRUTH (v1.2.234): sort on the shared overall score.
 usort(
     $display,
     function ($a, $b) {
@@ -205,8 +192,7 @@ $riskcfg = [
         'label' => get_string('riskhigh', 'plagiarism_essayguard')],
 ];
 
-// Summary counts — use computed average, not raw aggregate riskscore.
-// FIX-EG-REPORT-AVG (v1.2.208): _overall is the mean of per-question scores.
+// Summary counts use the shared overall rule, never the raw aggregate riskscore.
 $counts = ['low' => 0, 'medium' => 0, 'high' => 0];
 foreach ($display as $sc) {
     $scpct = (int)round($sc->_overall * 100);
@@ -285,13 +271,34 @@ echo '</div>';
 echo '<p class="eg-class-subtitle">' . s($cm->name) . ' &nbsp;|&nbsp; ' . s($course->fullname) . '</p>';
 
 /* ── Stat cards ──────────────────────────────────────────────────────────────── */
+// FIX-EG-HONEST-STAT-CARDS (v1.3.0): "Pending" and "Errors" were hardcoded to 0 and
+// rendered regardless of the data, so two of the six headline numbers on the class
+// report were decorative. A teacher reading "Errors: 0" was being told something the
+// plugin had never computed, and an activity where the tracker failed for a third of
+// the cohort rendered a clean, confident, entirely green report.
+//
+// "Not assessed" is now a real count, and it is the number an auditor asking "how do
+// you know you checked everyone?" actually needs.
+$notassessed = 0;
+foreach ($display as $sc) {
+    $hasmeasured = false;
+    foreach (($sc->_perq ?? []) as $slot => $r) {
+        if (!plagiarism_essayguard_is_unmeasured($r)) {
+            $hasmeasured = true;
+            break;
+        }
+    }
+    if (!$hasmeasured) {
+        $notassessed++;
+    }
+}
+
 $statcards = [
     [get_string('stattotal', 'plagiarism_essayguard'), count($display), '#1e3a5f', '#fff'],
     [get_string('stathigh', 'plagiarism_essayguard'), $counts['high'], '#b71c1c', '#fff'],
     [get_string('statmedium', 'plagiarism_essayguard'), $counts['medium'], '#e65100', '#fff'],
     [get_string('statlow', 'plagiarism_essayguard'), $counts['low'], '#2e7d32', '#fff'],
-    [get_string('statpending', 'plagiarism_essayguard'), 0, '#555555', '#fff'],
-    [get_string('staterrors', 'plagiarism_essayguard'), 0, '#6b21a8', '#fff'],
+    [get_string('statnotassessed', 'plagiarism_essayguard'), $notassessed, '#555555', '#fff'],
 ];
 echo '<div class="eg-stat-cards">';
 foreach ($statcards as [$label, $val, $bg, $fg]) {
@@ -394,7 +401,13 @@ foreach ($display as $sc) {
     echo '<tr' . ($rowclass ? ' class="' . $rowclass . '"' : '') . '>';
     echo '<td>'
        . '<a href="' . $profileurl->out(false) . '" class="eg-student-name">' . s($fn) . '</a>'
-       . '<br><small class="eg-student-email">' . s($sc->email ?? '') . '</small>'
+       // SEC-EG-IDENTITY (v1.3.0): email is an identity field. Moodle gates these on
+       // $CFG->showuseridentity plus moodle/site:viewuseridentity; this table printed it
+       // for every scored student unconditionally, widening what a tutor-level
+       // :viewreport grant discloses. fullname() already identifies the student.
+       . ($egshowemail
+            ? '<br><small class="eg-student-email">' . s($sc->email ?? '') . '</small>'
+            : '')
        . '</td>';
     echo '<td>' . $scorehtml . '</td>';
     echo '<td>' . $riskhtml . '</td>';
@@ -417,16 +430,9 @@ foreach ($display as $sc) {
             }
 
             // FIX-EG-FALLBACK-PASTE-ONLY (v1.2.110) + FIX-EG-REPORT-PASTE-SIGNAL1 (v1.2.160).
+            // FIX-EG-ONE-TRUTH (v1.2.234): shared rule, same call as lib.php.
             $isaggregatefallback = false;
-            if ((float)$r->riskscore <= 0.0 && $agg) {
-                $aggmetricsarr   = !empty($agg->metricsjson) ? (json_decode($agg->metricsjson, true) ?: []) : [];
-                $aggsignal1pts   = (int)(($aggmetricsarr['signal_breakdown'][1] ?? 0));
-                $agghaspasteev  = ($aggsignal1pts >= 30) || ((float)$agg->riskscore >= 0.70);
-                if ($agghaspasteev) {
-                    $r = $agg;
-                    $isaggregatefallback = true;
-                }
-            }
+            $r = plagiarism_essayguard_resolve_question_record($r, $agg, $isaggregatefallback);
 
             // FIX-EG-BADGE-LEVEL (v1.2.71): Derive from score, not DB column.
             $qscore  = isset($r->riskscore) ? (int)round((float)$r->riskscore * 100) : 0;
@@ -435,8 +441,25 @@ foreach ($display as $sc) {
             $qlabel  = strtoupper($qc['label'])
                 . ($isaggregatefallback ? get_string('overallsuffix', 'plagiarism_essayguard') : '');
 
+            // FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): never badge an unassessed
+            // question as LOW. See plagiarism_essayguard_is_unmeasured().
+            $qunmeasured = plagiarism_essayguard_is_unmeasured($r);
+            if ($qunmeasured) {
+                // FIX-EG-STALE-QC (v1.3.0): $qc was captured above and never recomputed,
+                // so the Score column read "0/100 NO DATA" while the Risk column beside
+                // it still read "LOW" — the fix defeated by a stale variable one line up.
+                $qlevel = 'nodata';
+                $qlabel = get_string('nodatabadge', 'plagiarism_essayguard');
+                $qc     = [
+                    'bg'    => '#f3f4f6',
+                    'text'  => '#4b5563',
+                    'bar'   => '#9ca3af',
+                    'label' => $qlabel,
+                    ];
+            }
+
             $qscorehtml = '<span class="eg-score-badge eg-score-badge-' . s($qlevel) . '" style="font-size:0.8rem;">'
-                         . $qscore . '/100 &nbsp;&nbsp;' . $qlabel
+                         . ($qunmeasured ? '&mdash;/100' : $qscore . '/100') . ' &nbsp;&nbsp;' . $qlabel
                          . '</span>';
             $qriskhtml  = '<span class="essayguard-badge essayguard-badge-' . s($qlevel) . '">'
                          . strtoupper($qc['label'])

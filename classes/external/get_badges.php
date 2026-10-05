@@ -102,6 +102,16 @@ class get_badges extends external_api {
         self::validate_context($context);
         require_capability('plagiarism/essayguard:viewreport', $context);
 
+        // FIX-EG-BADGES-CM-GATE (v1.3.0): honour the site-wide switch and the
+        // per-activity switch. lib.php's get_links() has refused to render badges for a
+        // disabled activity since v1.2.123, and this endpoint — which paints the badges
+        // on the overview table — had no such check, so it kept rendering them from
+        // stale records after a teacher had turned the plugin off.
+        global $CFG;
+        if (empty($CFG->enableplagiarism) || !plagiarism_essayguard_is_cm_active((int)$params['cmid'])) {
+            return [];
+        }
+
         // SESSION LOCK FIX: Release session lock before DB queries so concurrent
         // AJAX requests (autosave, tracker flush) are not blocked by this call.
         \core\session\manager::write_close();
@@ -164,37 +174,37 @@ class get_badges extends external_api {
         // 2. Fall back to the aggregate (qslot=0) record only for users who have
         // no per-question data yet (e.g. assign/forum or tracker not active).
 
-        // Step 1 — per-question records, worst first.
-        $pqrows = $DB->get_records_sql(
-            "SELECT *
+        // FIX-EG-ONE-TRUTH-BADGES (v1.3.0): this endpoint feeds the badges on the
+        // quiz grading overview — the page teachers actually spend their time on — and
+        // it was running a FOURTH, contradictory record-selection rule.
+        //
+        // It used "prefer whichever of the worst per-question record and the aggregate
+        // scores higher", which is precisely the higher-of-two rule that v1.2.93
+        // (FIX-EG-PERQ-TRUST) identified as wrong and removed from lib.php, because the
+        // aggregate pools every question's events and is almost always higher — so every
+        // student's badge fell through to it. v1.2.234 then unified lib.php, report.php
+        // and student.php on one rule and left this file behind.
+        //
+        // It also did no attempt scoping, so a student with two attempts could be badged
+        // from whichever attempt happened to sort first, and it selected with SELECT *,
+        // hydrating two TEXT blobs per row for every student on the page.
+        $allrows = $DB->get_records_sql(
+            "SELECT id, userid, cmid, qslot, attemptkey, riskscore, risklevel, metricsjson,
+                    timemodified, typing_time, total_keystrokes, paste_events
                FROM {plagiarism_essayguard_sc}
-              WHERE cmid = :cmid AND qslot > 0 AND userid $insql
-           ORDER BY userid ASC, riskscore DESC, timemodified DESC",
+              WHERE cmid = :cmid AND userid $insql
+           ORDER BY timemodified DESC, id DESC",
             $sqlparams
         );
 
-        $byuserpq = [];
-        foreach ($pqrows as $row) {
-            // First seen per user = highest riskscore (ORDER BY riskscore DESC).
-            if (!isset($byuserpq[$row->userid])) {
-                $byuserpq[$row->userid] = $row;
-            }
+        $rowsbyuser = [];
+        foreach ($allrows as $row) {
+            $rowsbyuser[(int)$row->userid][] = $row;
         }
 
-        // Step 2 — aggregate fallback (qslot=0), most-recent first.
-        $aggrows = $DB->get_records_sql(
-            "SELECT *
-               FROM {plagiarism_essayguard_sc}
-              WHERE cmid = :cmid AND qslot = 0 AND userid $insql
-           ORDER BY userid ASC, timemodified DESC",
-            $sqlparams
-        );
-
-        $byuseragg = [];
-        foreach ($aggrows as $row) {
-            if (!isset($byuseragg[$row->userid])) {
-                $byuseragg[$row->userid] = $row;
-            }
+        $byuserslots = [];
+        foreach ($rowsbyuser as $uid => $userrows) {
+            $byuserslots[$uid] = plagiarism_essayguard_scope_to_current_attempt($userrows);
         }
 
         foreach ($params['userids'] as $uid) {
@@ -211,21 +221,50 @@ class get_badges extends external_api {
             // New behaviour: compare per-question worst and aggregate; expose whichever
             // has the higher riskscore. If only one exists, use that one (no change for
             // assignments/forums that never produce per-question records).
-            $pqrecord  = $byuserpq[$uid] ?? null;
-            $aggrecord = $byuseragg[$uid] ?? null;
-            if ($pqrecord && $aggrecord) {
-                $record = ((float)$aggrecord->riskscore > (float)$pqrecord->riskscore)
-                    ? $aggrecord
-                    : $pqrecord;
-            } else {
-                $record = $pqrecord ?? $aggrecord;
+            $slots     = $byuserslots[$uid] ?? [];
+            $aggrecord = $slots[0] ?? null;
+
+            // The student-level badge is the shared overall rule — the same number the
+            // class report and the student page show for this student.
+            $overall = plagiarism_essayguard_overall_score($slots);
+
+            // Pick the record that produced that overall score, so the badge and the
+            // detail page agree about which question is being reported.
+            $record = $aggrecord;
+            $worst  = null;
+            foreach ($slots as $slot => $r) {
+                if ((int)$slot <= 0) {
+                    continue;
+                }
+                $isfb     = false;
+                $resolved = plagiarism_essayguard_resolve_question_record($r, $aggrecord, $isfb);
+                if ($worst === null || (float)$resolved->riskscore > (float)$worst->riskscore) {
+                    $worst = $resolved;
+                }
+            }
+            if ($worst !== null) {
+                $record = $worst;
+            }
+
+            // An attempt where nothing was captured is not a low-risk attempt. Badge it
+            // as not assessed rather than green. See FIX-EG-NO-DATA-IS-NOT-LOW.
+            $allunmeasured = !empty($slots);
+            foreach ($slots as $r) {
+                if (!plagiarism_essayguard_is_unmeasured($r)) {
+                    $allunmeasured = false;
+                    break;
+                }
             }
 
             if ($record) {
-                $riskpct   = max(0, min(100, (int)round((float)($record->riskscore ?? 0) * 100)));
+                $riskpct   = max(0, min(100, (int)round($overall * 100)));
                 // Re-derive level from score so stale DB values written under old
                 // thresholds are always corrected at display time (v1.2.71).
                 $risklevel = \plagiarism_essayguard\local\service\analyser::risk_level($riskpct);
+                if ($allunmeasured) {
+                    $risklevel = 'unmeasured';
+                    $riskpct   = 0;
+                }
                 $results[] = [
                     'userid'    => (int)$uid,
                     'risklevel' => $risklevel,

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<XMLDB PATH="plagiarism/essayguard/db" VERSION="2026030700110" COMMENT="XMLDB file for Essay Guard"
+<XMLDB PATH="plagiarism/essayguard/db" VERSION="20261005" COMMENT="XMLDB file for Essay Guard"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd">
     <TABLES>
@@ -21,6 +21,9 @@
             <INDEXES>
                 <INDEX NAME="user_cmid_ix" UNIQUE="false" FIELDS="userid, cmid"/>
                 <INDEX NAME="attempt_ix" UNIQUE="false" FIELDS="attemptkey"/>
+                <INDEX NAME="timecreated_ix" UNIQUE="false" FIELDS="timecreated"/>
+                <INDEX NAME="scoringlookup_ix" UNIQUE="false" FIELDS="userid, cmid, attemptkey, id"/>
+                <INDEX NAME="context_ix" UNIQUE="false" FIELDS="contextid"/>
             </INDEXES>
         </TABLE>
 
@@ -68,6 +71,26 @@
             <INDEXES>
                 <INDEX NAME="attemptslot_uix" UNIQUE="true" FIELDS="userid, cmid, attemptkey, qslot"/>
                 <INDEX NAME="cmid_qslot_ix" UNIQUE="false" FIELDS="cmid, qslot"/>
+            </INDEXES>
+        </TABLE>
+
+        <TABLE NAME="plagiarism_essayguard_fpm" COMMENT="Per-metric running statistics for a student's writing baseline (Welford mean and M2), partitioned by activity type">
+            <FIELDS>
+                <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+                <FIELD NAME="userid" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="contexttype" TYPE="char" LENGTH="16" NOTNULL="true" DEFAULT="other"/>
+                <FIELD NAME="metricname" TYPE="char" LENGTH="32" NOTNULL="true"/>
+                <FIELD NAME="samplen" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="runmean" TYPE="number" LENGTH="20" DECIMALS="6" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="runm2" TYPE="number" LENGTH="20" DECIMALS="6" NOTNULL="true" DEFAULT="0"/>
+                <FIELD NAME="timemodified" TYPE="int" LENGTH="10" NOTNULL="true" DEFAULT="0"/>
+            </FIELDS>
+            <KEYS>
+                <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+            </KEYS>
+            <INDEXES>
+                <INDEX NAME="usermetric_uix" UNIQUE="true" FIELDS="userid, contexttype, metricname"/>
+                <INDEX NAME="user_ix" UNIQUE="false" FIELDS="userid"/>
             </INDEXES>
         </TABLE>
 
