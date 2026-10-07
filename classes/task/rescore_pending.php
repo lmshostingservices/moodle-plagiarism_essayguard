@@ -64,26 +64,11 @@ class rescore_pending extends \core\task\scheduled_task {
      * @return void
      */
     public function execute(): void {
-        global $DB;
+        global $DB, $CFG;
+        require_once($CFG->dirroot . '/plagiarism/essayguard/lib.php');
 
-        // Only run when the plugin is globally enabled.
-        //
-        // v1.2.224 FIX-EG-RESCOREPENDING-NEVERRUNS: this read `$enabled === false ||
-        // empty($enabled)`, which treats a NEVER-SAVED setting as "disabled". Every other
-        // enabled-check in this plugin - lib.php (x3), observer.php, before_footer.php,
-        // finalize_attempt.php, refresh_licence.php, report.php, rescore.php - reads
-        // `!== false && empty()`, i.e. an unset key means enabled, because get_config()
-        // returns false for a key the admin has never written and that is the state of
-        // every fresh install.
-        //
-        // So on a site where nobody had opened Essay Guard's settings page and pressed
-        // Save, live scoring ran but this task returned immediately, every run, forever.
-        // This task is the backstop for attempts whose browser never reached
-        // finalize_attempt - the student closed the tab as it submitted - and those
-        // attempts keep riskscore = 0 permanently. The one component that exists to
-        // repair the gap was the one component the default configuration switched off.
-        $enabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($enabled !== false && empty($enabled)) {
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             mtrace('Essay Guard rescore_pending: plugin disabled — skipping.');
             return;
         }
@@ -160,7 +145,7 @@ class rescore_pending extends \core\task\scheduled_task {
                         $row->cmid,
                         $result['risklevel'],
                         $result['score100']
-                        )
+                    )
                 );
                 $rescored++;
             } catch (\Throwable $e) {
@@ -169,7 +154,7 @@ class rescore_pending extends \core\task\scheduled_task {
                         '  [%s] ERROR: %s',
                         substr($row->attemptkey, 0, 12),
                         $e->getMessage()
-                        )
+                    )
                 );
             }
         }

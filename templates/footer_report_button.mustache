@@ -1,0 +1,38 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/footer_report_button
+
+    Floating link to the Essay Guard class report on quiz pages, for teachers.
+
+    Context variables required for this template:
+    * reporturl - Class report URL.
+    * count - Number of scored students (0 hides the counter).
+
+    Example context (json):
+    {
+        "reporturl": "https://example.com/plagiarism/essayguard/report.php?cmid=2",
+        "count": 12
+    }
+}}
+<div class="eg-footer-report">
+    <a href="{{reporturl}}" class="eg-footer-report-link" title="{{#str}}footerreportbutton, plagiarism_essayguard{{/str}}">
+        {{#pix}}i/report, core{{/pix}}
+        <span>{{#str}}footerreportbutton, plagiarism_essayguard{{/str}}</span>
+        {{#count}}<span class="eg-footer-report-count">{{count}}</span>{{/count}}
+    </a>
+</div>

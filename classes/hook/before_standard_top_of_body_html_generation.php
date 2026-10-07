@@ -69,7 +69,13 @@ class before_standard_top_of_body_html_generation {
         // keystroke was recorded and the student was told nothing, anywhere —
         // which is APP 5 and GDPR Art. 13 failed on their face, and the cleanest
         // possible ground for a student to have a finding overturned.
-        $hook->add_html(self::quiz_disclosure());
+        // Output at the very top of <body> sits underneath the theme's fixed navigation
+        // bar, so the notice is queued as a page notification instead; themes render
+        // notifications at the top of the main content region, where it can be read.
+        $disclosure = self::quiz_disclosure();
+        if ($disclosure !== '') {
+            \core\notification::add($disclosure, \core\output\notification::NOTIFY_INFO);
+        }
     }
 
     /**

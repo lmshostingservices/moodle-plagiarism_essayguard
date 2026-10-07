@@ -114,8 +114,10 @@ final class linguistic_claims_test extends \basic_testcase {
             4
         );
         $natural = '<p>Short opening line to set the scene.</p>'
-            . '<p>' . str_repeat('A much longer middle section with a great deal more '
-            . 'detail in it. ', 6) . '</p>'
+            . '<p>' . str_repeat(
+                'A much longer middle section with a great deal more detail in it. ',
+                6
+            ) . '</p>'
             . '<p>Then a brief closing thought to finish on.</p>';
 
         $this->assertLessThan(

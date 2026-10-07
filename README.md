@@ -168,13 +168,28 @@ Settings page: **Site Administration → Plugins → Plagiarism prevention → E
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Enable Essay Guard | Off | Master switch |
+| Enable Essay Guard | Off | Master switch. Stored as Off at install; nothing is captured until an administrator turns it on. |
 | Flush interval (ms) | 5000 | How often tracker sends data |
 | Min chars before scoring | 120 | Ignore very short submissions |
 | Large insertion threshold | 150 | Characters threshold for burst detection |
 | Allow paste | Off | Block or log paste events |
 | Retention days | 90 | Auto-delete old telemetry |
 | Site ID / API Key | — | AI Grader unlock credentials |
+
+### Turning monitoring on
+
+Essay Guard is **opt-in at two levels**. Installing it does not start capture anywhere, even on a site where "Enable plagiarism plugins" is already on:
+
+1. An administrator ticks **Enable Essay Guard** on the settings page.
+2. A teacher ticks **Enable Essay Guard** in the Plagiarism section of each assignment, quiz or forum. Activities that existed before the plugin was installed are **not** monitored until a teacher does this.
+
+The per-activity setting is included in course backups and is restored onto the new activity when a course is restored, imported or an activity is duplicated. An activity restored from a backup that has no Essay Guard setting stays off.
+
+On upgrade from 1.4.0 or earlier, sites keep what they were already monitoring: if the site switch was never saved but Essay Guard has data, it is recorded as on, and every activity that already holds Essay Guard data is recorded as on. Everything else is off.
+
+### Quiz scoring
+
+When a student submits a quiz, scoring is queued as a background (ad-hoc) task rather than run inside the submit request. Badges read **Essay Guard Pending** until cron has run the task, normally within a minute.
 
 ---
 
@@ -185,13 +200,16 @@ Settings page: **Site Administration → Plugins → Plagiarism prevention → E
 - The plugin does contact `lms-labs.com` for licence verification and site-wide settings. Those requests contain this site's Site ID and API key only — never student data. This is declared in the plugin's privacy metadata.
 - Students are shown a disclosure above the submission form explaining what is captured, why, who can see it and how long it is kept.
 - Raw keystroke telemetry is automatically pruned after the configured retention period (default 90 days). Summary risk scores are retained with the submission.
-- Full Moodle Privacy API implementation in `classes/privacy/provider.php`, covering export, erasure, user lists and user preferences across all three tables.
+- Full Moodle Privacy API implementation in `classes/privacy/provider.php`, covering export, erasure, user lists and user preferences across all four tables (`_ev` telemetry, `_sc` scores, and the writing baseline in `_fp` and its per-metric statistics `_fpm`) and the `essayguard_ak_*`, `essayguard_lastscore_*` and `essayguard_fin_*` preferences. The writing baseline is reported in the system context.
+- The API key is sent to `lms-labs.com` in an `Authorization: Bearer` header (or a POST body), never in a URL.
 
 ## Pricing
 
 **$5 USD (50 LMS Labs credits)** — one-time purchase per site · lifetime updates · no subscription.
 
-Essay Guard is unlocked from your LMS Labs credit balance: activating it on a site deducts 50 credits once, which is the credit equivalent of the $5 price. The settings page and the unlock dialog both quote the credit figure; they refer to the same one-time charge.
+Essay Guard is unlocked from your LMS Labs credit balance: activating it on a site deducts 50 credits once, which is the credit equivalent of the $5 price.
+
+Credits are only ever spent by an administrator pressing **Unlock Essay Guard…** on the settings page and then confirming the amount on the confirmation screen. Saving the settings, checking the unlock status and the scheduled licence task only *check* the status; none of them can spend credits.
 
 Download at [lms-labs.com/plugins](https://lms-labs.com/plugins).
 

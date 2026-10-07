@@ -51,6 +51,9 @@ final class external_test extends \advanced_testcase {
     protected function setUp(): void {
         parent::setUp();
         $this->silence_php_deprecation_output();
+        // Ids restart after each reset, so two tests can score the same user, cm and key;
+        // the analyser's per-request event snapshot must not carry over between them.
+        \plagiarism_essayguard\local\service\analyser::reset_caches();
     }
 
     /**
@@ -61,6 +64,51 @@ final class external_test extends \advanced_testcase {
     protected function tearDown(): void {
         $this->restore_php_deprecation_output();
         parent::tearDown();
+    }
+
+    /**
+     * Switch Essay Guard on, and Moodle's plagiarism subsystem with it.
+     *
+     * SEC-EG-ENABLEPLAGIARISM (v1.3.0): all three web services refuse to collect, score
+     * or report while core's "Enable plagiarism plugins" is off, which is the default on
+     * a fresh site. Without this every test below would be exercising that early return
+     * rather than the behaviour it names.
+     *
+     * @return void
+     */
+    private function enable_for_web_services(): void {
+        $this->enable_essayguard();
+        set_config('enableplagiarism', 1);
+    }
+
+    /**
+     * The attempt key a user legitimately owns on a non-quiz activity.
+     *
+     * SEC-EG-ATTEMPTKEY-ALLOWLIST (v1.3.0): the web services accept only the two key
+     * forms a user can own - this hash, or 'qa_<id>' for one of their own attempts at
+     * this quiz - so free-form fixture keys such as 'akwire' are refused before the
+     * behaviour under test is reached.
+     *
+     * @param int $userid The calling user.
+     * @param int $cmid   The course module.
+     * @return string The key plagiarism_essayguard_attemptkey_is_valid() accepts.
+     */
+    private function own_key(int $userid, int $cmid): string {
+        return sha1($userid . ':' . $cmid);
+    }
+
+    /**
+     * Score-row metrics showing that telemetry was captured for the record.
+     *
+     * FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): a row with no captured events is badged
+     * "not assessed" whatever its riskscore, so rows standing for a real scored attempt
+     * must say that events were captured.
+     *
+     * @param int $eventcount How many events the record was scored from.
+     * @return string The metricsjson value.
+     */
+    private static function measured(int $eventcount = 40): string {
+        return json_encode(['event_count' => $eventcount]);
     }
 
     /**
@@ -88,9 +136,8 @@ final class external_test extends \advanced_testcase {
      */
     private function call_log_event(int $cmid, string $attemptkey, array $events): array {
         $result = log_event::execute($cmid, $attemptkey, $events);
-        // The scoring pass logs its own diagnostics at developer level; those belong to
-        // analyser's tests, not to the web-service contract these tests are about.
-        $this->resetDebugging();
+        // The scoring pass no longer writes developer diagnostics (removed in 1.4.1).
+        $this->assertDebuggingNotCalled();
         return (array)external_api::clean_returnvalue(log_event::execute_returns(), $result);
     }
 
@@ -103,15 +150,16 @@ final class external_test extends \advanced_testcase {
     public function test_log_event_stores_the_batch(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
         $result = $this->call_log_event(
             (int)$act['cm']->id,
-            'akwire',
+            $key,
             [
                 $this->wire_event(),
                 $this->wire_event('paste', ['insertlen' => 400]),
@@ -127,7 +175,7 @@ final class external_test extends \advanced_testcase {
                 [
                     'userid'     => $student->id,
                     'cmid'       => $act['cm']->id,
-                    'attemptkey' => 'akwire',
+                    'attemptkey' => $key,
                     ]
             )
         );
@@ -142,13 +190,14 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_hides_the_score_from_the_student(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
-        $result = $this->call_log_event((int)$act['cm']->id, 'akhide', [$this->wire_event()]);
+        $result = $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event()]);
 
         $this->assertSame(0.0, $result['riskscore']);
         $this->assertSame('', $result['risklevel']);
@@ -162,17 +211,18 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_gives_the_score_to_a_teacher(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $teacher = $this->getDataGenerator()->create_and_enrol($act['course'], 'editingteacher');
         $this->setUser($teacher);
+        $key = $this->own_key((int)$teacher->id, (int)$act['cm']->id);
         $this->assertTrue(has_capability('plagiarism/essayguard:viewreport', $act['context']));
 
         // A stream with a big paste in it, so the score is not zero by coincidence.
         $result = $this->call_log_event(
             (int)$act['cm']->id,
-            'akteacher',
+            $key,
             [
                 $this->wire_event('paste', ['insertlen' => 900]),
                 $this->wire_event(),
@@ -195,21 +245,22 @@ final class external_test extends \advanced_testcase {
     public function test_log_event_throttles_scoring_without_claiming_a_low_risk(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $teacher = $this->getDataGenerator()->create_and_enrol($act['course'], 'editingteacher');
         $this->setUser($teacher);
+        $key = $this->own_key((int)$teacher->id, (int)$act['cm']->id);
 
-        $first = $this->call_log_event((int)$act['cm']->id, 'akthrottle', [$this->wire_event()]);
+        $first = $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event()]);
         $this->assertFalse($first['ignored']);
 
-        $second = $this->call_log_event((int)$act['cm']->id, 'akthrottle', [$this->wire_event()]);
+        $second = $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event()]);
         $this->assertFalse($second['ignored']);
         $this->assertSame('', $second['risklevel']);
 
         // Both batches were stored even though only the first was scored.
-        $this->assertSame(2, $DB->count_records('plagiarism_essayguard_ev', ['attemptkey' => 'akthrottle']));
+        $this->assertSame(2, $DB->count_records('plagiarism_essayguard_ev', ['attemptkey' => $key]));
     }
 
     /**
@@ -221,7 +272,7 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_rejects_another_students_attempt_key(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_quiz();
         $victim  = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -232,6 +283,7 @@ final class external_test extends \advanced_testcase {
 
         $this->setUser($cheat);
         $this->expectException(\invalid_parameter_exception::class);
+        $this->expectExceptionMessage('attemptkey is not valid for this user and activity');
         log_event::execute((int)$act['cm']->id, 'qa_' . $attempt->get_attemptid(), [$this->wire_event()]);
     }
 
@@ -244,13 +296,14 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_rejects_an_oversized_attempt_key(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
 
         $this->expectException(\invalid_parameter_exception::class);
+        $this->expectExceptionMessage('attemptkey must be 1-64 characters');
         log_event::execute((int)$act['cm']->id, str_repeat('a', 65), [$this->wire_event()]);
     }
 
@@ -266,18 +319,19 @@ final class external_test extends \advanced_testcase {
     public function test_log_event_rejects_an_oversized_event_name(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
         // The column really is 32 characters, which is what the guard is sized against.
         $columns = $DB->get_columns('plagiarism_essayguard_ev');
         $this->assertSame(32, (int)$columns['eventname']->max_length);
 
         try {
-            log_event::execute((int)$act['cm']->id, 'akname', [$this->wire_event(str_repeat('k', 33))]);
+            log_event::execute((int)$act['cm']->id, $key, [$this->wire_event(str_repeat('k', 33))]);
             $this->fail('An event name longer than the column must be refused.');
         } catch (\invalid_parameter_exception $e) {
             $this->assertStringContainsString('eventname', $e->getMessage());
@@ -287,7 +341,7 @@ final class external_test extends \advanced_testcase {
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev'));
 
         // A name that fits is accepted.
-        $this->call_log_event((int)$act['cm']->id, 'akname', [$this->wire_event(str_repeat('k', 32))]);
+        $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event(str_repeat('k', 32))]);
         $this->assertSame(1, $DB->count_records('plagiarism_essayguard_ev'));
     }
 
@@ -299,15 +353,17 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_rejects_an_oversized_batch(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
         $events = array_fill(0, log_event::MAX_EVENTS + 1, $this->wire_event());
         $this->expectException(\invalid_parameter_exception::class);
-        log_event::execute((int)$act['cm']->id, 'akbatch', $events);
+        $this->expectExceptionMessage('too many events in one call');
+        log_event::execute((int)$act['cm']->id, $key, $events);
     }
 
     /**
@@ -317,17 +373,19 @@ final class external_test extends \advanced_testcase {
      */
     public function test_log_event_rejects_an_oversized_payload(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
         $event = $this->wire_event();
         $event['payloadjson'] = str_repeat('x', log_event::MAX_PAYLOAD_BYTES + 1);
 
         $this->expectException(\invalid_parameter_exception::class);
-        log_event::execute((int)$act['cm']->id, 'akpayload', [$event]);
+        $this->expectExceptionMessage('payloadjson exceeds');
+        log_event::execute((int)$act['cm']->id, $key, [$event]);
     }
 
     /**
@@ -343,14 +401,15 @@ final class external_test extends \advanced_testcase {
     public function test_log_event_honours_the_per_activity_switch(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
         $this->set_platform_settings(false, false);
 
         $act     = $this->create_essayguard_assign(false);
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
-        $result = $this->call_log_event((int)$act['cm']->id, 'akoffcm', [$this->wire_event()]);
+        $result = $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event()]);
 
         $this->assertTrue($result['ignored']);
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev'));
@@ -365,14 +424,15 @@ final class external_test extends \advanced_testcase {
     public function test_log_event_honours_the_site_wide_switch(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
         set_config('enabled', 0, 'plagiarism_essayguard');
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
 
-        $result = $this->call_log_event((int)$act['cm']->id, 'akoffsite', [$this->wire_event()]);
+        $result = $this->call_log_event((int)$act['cm']->id, $key, [$this->wire_event()]);
 
         $this->assertTrue($result['ignored']);
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev'));
@@ -389,14 +449,15 @@ final class external_test extends \advanced_testcase {
     public function test_finalize_attempt_blanks_the_report_for_the_student(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
-        $this->add_typing_stream($student->id, (int)$act['cm']->id, (int)$act['context']->id, 'akfinal');
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
+        $this->add_typing_stream($student->id, (int)$act['cm']->id, (int)$act['context']->id, $key);
 
-        $raw    = finalize_attempt::execute((int)$act['cm']->id, 'akfinal', 'The submitted answer text.');
+        $raw    = finalize_attempt::execute((int)$act['cm']->id, $key, 'The submitted answer text.');
         $result = (array)external_api::clean_returnvalue(finalize_attempt::execute_returns(), $raw);
 
         $this->assertTrue($result['ok']);
@@ -417,14 +478,15 @@ final class external_test extends \advanced_testcase {
      */
     public function test_finalize_attempt_returns_the_full_report_to_a_teacher(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $teacher = $this->getDataGenerator()->create_and_enrol($act['course'], 'editingteacher');
         $this->setUser($teacher);
-        $this->add_typing_stream($teacher->id, (int)$act['cm']->id, (int)$act['context']->id, 'akstaff');
+        $key = $this->own_key((int)$teacher->id, (int)$act['cm']->id);
+        $this->add_typing_stream($teacher->id, (int)$act['cm']->id, (int)$act['context']->id, $key);
 
-        $raw    = finalize_attempt::execute((int)$act['cm']->id, 'akstaff', 'The submitted answer text.');
+        $raw    = finalize_attempt::execute((int)$act['cm']->id, $key, 'The submitted answer text.');
         $result = (array)external_api::clean_returnvalue(finalize_attempt::execute_returns(), $raw);
 
         $this->assertTrue($result['ok']);
@@ -444,15 +506,16 @@ final class external_test extends \advanced_testcase {
     public function test_finalize_attempt_honours_the_per_activity_switch(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
         $this->set_platform_settings(false, false);
 
         $act     = $this->create_essayguard_assign(false);
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $this->setUser($student);
-        $this->add_typing_stream($student->id, (int)$act['cm']->id, (int)$act['context']->id, 'akofffin');
+        $key = $this->own_key((int)$student->id, (int)$act['cm']->id);
+        $this->add_typing_stream($student->id, (int)$act['cm']->id, (int)$act['context']->id, $key);
 
-        $raw    = finalize_attempt::execute((int)$act['cm']->id, 'akofffin', 'The submitted answer text.');
+        $raw    = finalize_attempt::execute((int)$act['cm']->id, $key, 'The submitted answer text.');
         $result = (array)external_api::clean_returnvalue(finalize_attempt::execute_returns(), $raw);
 
         $this->assertFalse($result['ok']);
@@ -466,7 +529,7 @@ final class external_test extends \advanced_testcase {
      */
     public function test_finalize_attempt_rejects_another_students_attempt_key(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act    = $this->create_essayguard_quiz();
         $victim = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -477,6 +540,7 @@ final class external_test extends \advanced_testcase {
 
         $this->setUser($cheat);
         $this->expectException(\invalid_parameter_exception::class);
+        $this->expectExceptionMessage('attemptkey is not valid for this user and activity');
         finalize_attempt::execute((int)$act['cm']->id, 'qa_' . $attempt->get_attemptid(), 'text');
     }
 
@@ -487,7 +551,7 @@ final class external_test extends \advanced_testcase {
      */
     public function test_get_badges_requires_the_report_capability(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -505,7 +569,7 @@ final class external_test extends \advanced_testcase {
      */
     public function test_get_badges_reports_scored_and_unscored_students(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $scored  = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -518,6 +582,7 @@ final class external_test extends \advanced_testcase {
             'contextid' => $act['context']->id,
             'riskscore' => 0.75,
             'risklevel' => 'high',
+            'metricsjson' => self::measured(),
         ]);
 
         $this->setUser($teacher);
@@ -544,19 +609,40 @@ final class external_test extends \advanced_testcase {
      */
     public function test_get_badges_exposes_the_worst_of_the_per_question_and_aggregate_records(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $teacher = $this->getDataGenerator()->create_and_enrol($act['course'], 'editingteacher');
 
         // Aggregate looks calm; question 2 does not.
-        $this->create_score(['userid' => $student->id, 'cmid' => $act['cm']->id,
-            'contextid' => $act['context']->id, 'attemptkey' => 'akworst', 'qslot' => 0, 'riskscore' => 0.10]);
-        $this->create_score(['userid' => $student->id, 'cmid' => $act['cm']->id,
-            'contextid' => $act['context']->id, 'attemptkey' => 'akworst', 'qslot' => 1, 'riskscore' => 0.20]);
-        $this->create_score(['userid' => $student->id, 'cmid' => $act['cm']->id,
-            'contextid' => $act['context']->id, 'attemptkey' => 'akworst', 'qslot' => 2, 'riskscore' => 0.90]);
+        $this->create_score([
+            'userid' => $student->id,
+            'cmid' => $act['cm']->id,
+            'contextid' => $act['context']->id,
+            'attemptkey' => 'akworst',
+            'qslot' => 0,
+            'riskscore' => 0.10,
+            'metricsjson' => self::measured(),
+        ]);
+        $this->create_score([
+            'userid' => $student->id,
+            'cmid' => $act['cm']->id,
+            'contextid' => $act['context']->id,
+            'attemptkey' => 'akworst',
+            'qslot' => 1,
+            'riskscore' => 0.20,
+            'metricsjson' => self::measured(),
+        ]);
+        $this->create_score([
+            'userid' => $student->id,
+            'cmid' => $act['cm']->id,
+            'contextid' => $act['context']->id,
+            'attemptkey' => 'akworst',
+            'qslot' => 2,
+            'riskscore' => 0.90,
+            'metricsjson' => self::measured(),
+        ]);
 
         $this->setUser($teacher);
         $results = external_api::clean_returnvalue(
@@ -576,16 +662,30 @@ final class external_test extends \advanced_testcase {
      */
     public function test_get_badges_lets_a_high_aggregate_beat_a_quiet_per_question_record(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
         $teacher = $this->getDataGenerator()->create_and_enrol($act['course'], 'editingteacher');
 
-        $this->create_score(['userid' => $student->id, 'cmid' => $act['cm']->id,
-            'contextid' => $act['context']->id, 'attemptkey' => 'akresc', 'qslot' => 0, 'riskscore' => 0.85]);
-        $this->create_score(['userid' => $student->id, 'cmid' => $act['cm']->id,
-            'contextid' => $act['context']->id, 'attemptkey' => 'akresc', 'qslot' => 1, 'riskscore' => 0.00]);
+        $this->create_score([
+            'userid' => $student->id,
+            'cmid' => $act['cm']->id,
+            'contextid' => $act['context']->id,
+            'attemptkey' => 'akresc',
+            'qslot' => 0,
+            'riskscore' => 0.85,
+            'metricsjson' => self::measured(),
+        ]);
+        $this->create_score([
+            'userid' => $student->id,
+            'cmid' => $act['cm']->id,
+            'contextid' => $act['context']->id,
+            'attemptkey' => 'akresc',
+            'qslot' => 1,
+            'riskscore' => 0.00,
+            'metricsjson' => self::measured(0),
+        ]);
 
         $this->setUser($teacher);
         $results = external_api::clean_returnvalue(
@@ -605,11 +705,12 @@ final class external_test extends \advanced_testcase {
     public function test_get_badges_does_not_leak_across_separate_groups(): void {
         global $DB;
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $course = $this->getDataGenerator()->create_course();
         $assign = $this->getDataGenerator(
-            )->create_module('assign',
+        )->create_module(
+            'assign',
             [
                 'course'    => $course->id,
                 'groupmode' => SEPARATEGROUPS,
@@ -647,6 +748,7 @@ final class external_test extends \advanced_testcase {
                 'attemptkey' => 'ak' . $user->id,
                 'riskscore'  => 0.90,
                 'risklevel'  => 'high',
+                'metricsjson' => self::measured(),
             ]);
         }
 
@@ -676,7 +778,7 @@ final class external_test extends \advanced_testcase {
      */
     public function test_get_badges_rederives_the_level_from_the_score(): void {
         $this->resetAfterTest();
-        $this->enable_essayguard();
+        $this->enable_for_web_services();
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -689,6 +791,7 @@ final class external_test extends \advanced_testcase {
             'contextid' => $act['context']->id,
             'riskscore' => 0.90,
             'risklevel' => 'low',
+            'metricsjson' => self::measured(),
         ]);
 
         $this->setUser($teacher);

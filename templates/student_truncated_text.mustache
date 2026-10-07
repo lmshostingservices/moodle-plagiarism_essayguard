@@ -1,0 +1,51 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/student_truncated_text
+
+    Plain text shown truncated with a "more" link that reveals the full text, and a
+    "less" link that collapses it again.
+
+    Data attributes required for JS:
+    * data-region="plagiarism_essayguard-student-truncated" on the wrapper
+    * data-region="short" / data-region="full" on the two text spans
+    * data-action="plagiarism_essayguard-student-toggletext" and data-show="full|short" on the links
+
+    Context variables required for this template:
+    * id - string unique id prefix
+    * islong - bool whether the text was truncated
+    * short - string truncated text
+    * full - string full text
+    * morelabel - string label of the expand link
+    * lesslabel - string label of the collapse link
+
+    Example context (json):
+    {
+        "id": "eg-ans-3",
+        "islong": true,
+        "short": "Assessment must be valid, reliable, flexible and fair. Valid means",
+        "full": "Assessment must be valid, reliable, flexible and fair. Valid means the assessment measures what it claims to measure.",
+        "morelabel": "show more",
+        "lesslabel": "show less"
+    }
+}}
+<span data-region="plagiarism_essayguard-student-truncated">
+    <span id="{{id}}-short" data-region="short">{{short}}{{#islong}}&hellip; <a href="#" class="eg-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="full" aria-controls="{{id}}-full" aria-expanded="false">{{morelabel}}</a>{{/islong}}</span>
+    {{#islong}}
+    <span id="{{id}}-full" data-region="full" hidden>{{full}} <a href="#" class="eg-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="short" aria-controls="{{id}}-full" aria-expanded="true">{{lesslabel}}</a></span>
+    {{/islong}}
+</span>

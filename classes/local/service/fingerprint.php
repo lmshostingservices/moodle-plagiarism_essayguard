@@ -331,10 +331,10 @@ class fingerprint {
      * @param string $contexttype Activity type the current submission belongs to.
      * @param array  $metrics     The metrics measured for this submission.
      * @return array {
-     *     @var float    deviation  0.0-1.0 combined departure from the student's pattern.
-     *     @var int      metrics    How many metrics were comparable.
-     *     @var string[] drivers    Metric names that exceeded the floor, worst first.
-     *     @var array    detail     Per-metric z-scores, for the teacher-facing breakdown.
+     * @var float    deviation  0.0-1.0 combined departure from the student's pattern.
+     * @var int      metrics    How many metrics were comparable.
+     * @var string[] drivers    Metric names that exceeded the floor, worst first.
+     * @var array    detail     Per-metric z-scores, for the teacher-facing breakdown.
      * }
      */
     public static function comparative_deviation(int $userid, string $contexttype, array $metrics): array {
@@ -462,9 +462,9 @@ class fingerprint {
      * @param int    $userid      The student.
      * @param string $contexttype Activity type.
      * @return array {
-     *     @var string status  none, preliminary or stable.
-     *     @var int    metrics  How many metrics have enough samples to compare.
-     *     @var int    samples  Samples behind the best-established metric.
+     * @var string status  none, preliminary or stable.
+     * @var int    metrics  How many metrics have enough samples to compare.
+     * @var int    samples  Samples behind the best-established metric.
      * }
      */
     public static function confidence(int $userid, string $contexttype): array {

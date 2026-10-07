@@ -43,15 +43,6 @@ namespace plagiarism_essayguard\local\service;
  */
 class analyser {
     /**
-     * Insertion causes the browser reports that are not a paste.
-     *
-     * An undo, a redo, an IME composition, dictation or an autocorrect replacement all
-     * produce a large text delta with no clipboard involved. Treating them as pastes
-     * reported assistive-technology users and ordinary editing as misconduct.
-     *
-     * @var string[]
-     */
-    /**
      * Ceiling on the combined contribution of the paste-derived signals (3-7).
      *
      * These describe the consequences of one paste rather than five findings, so their
@@ -61,6 +52,25 @@ class analyser {
      */
     const PASTE_DERIVED_CAP = 25;
 
+    /**
+     * Per-request snapshot of telemetry rows, keyed by "userid:cmid:attemptkey".
+     *
+     * See PERF-EG-EVENT-CACHE in score_attempt(). Held as a class property rather than a
+     * function-local static so that it can be cleared by reset_caches().
+     *
+     * @var array<string, \stdClass[]>
+     */
+    private static $eventcache = [];
+
+    /**
+     * Insertion causes the browser reports that are not a paste.
+     *
+     * An undo, a redo, an IME composition, dictation or an autocorrect replacement all
+     * produce a large text delta with no clipboard involved. Treating them as pastes
+     * reported assistive-technology users and ordinary editing as misconduct.
+     *
+     * @var string[]
+     */
     const BENIGN_INPUT_TYPES = [
         'historyUndo',
         'historyRedo',
@@ -70,6 +80,19 @@ class analyser {
         'insertFromDictation',
         'insertFromYank',
     ];
+
+    /**
+     * Discard the per-request event snapshot.
+     *
+     * The snapshot is meant to live for one request. A process that outlives a request
+     * (a PHPUnit run, a long-running cron worker) must clear it before scoring the same
+     * attempt key again, or it scores a stale set of rows.
+     *
+     * @return void
+     */
+    public static function reset_caches(): void {
+        self::$eventcache = [];
+    }
 
     /**
      * Score a typing session from its raw events.
@@ -142,11 +165,10 @@ class analyser {
         // calls. The static is per-request, so a later rescore in the same request still
         // sees the rows as they were when scoring began, which is what we want: all of
         // an attempt's slots should be scored from one consistent snapshot.
-        static $eventcache = [];
         $eventcachekey = $userid . ':' . $cmid . ':' . $attemptkey;
 
-        if (array_key_exists($eventcachekey, $eventcache)) {
-            $allevents = $eventcache[$eventcachekey];
+        if (array_key_exists($eventcachekey, self::$eventcache)) {
+            $allevents = self::$eventcache[$eventcachekey];
         } else {
             $allevents = $DB->get_records(
                 'plagiarism_essayguard_ev',
@@ -157,7 +179,7 @@ class analyser {
                     ],
                 'id ASC'
             );
-            $eventcache[$eventcachekey] = $allevents;
+            self::$eventcache[$eventcachekey] = $allevents;
         }
 
         // V1.2.14: Filter to per-question events when qslot > 0.
@@ -181,7 +203,7 @@ class analyser {
                 static function ($ev) use ($qslot) {
                     $p = json_decode($ev->payloadjson ?? '{}', true) ?: [];
                     return isset($p['qslot']) && (int)$p['qslot'] === $qslot;
-                    }
+                }
             );
         } else {
             $events = $allevents;
@@ -281,12 +303,6 @@ class analyser {
                     $events[$key] = $ev;
                 }
                 ksort($events); // Restore id/time order after inserting untagged pastes.
-                debugging(
-                    '[EssayGuard] FIX-EG-PERQ-UNTAGGED-PASTE: checked untagged pastes'
-                        . ' for qslot=' . $qslot . ' text_chars=' . $textcharspfix
-                        . ' events_after=' . count($events),
-                    DEBUG_DEVELOPER
-                );
             }
         }
 
@@ -446,22 +462,10 @@ class analyser {
                 if (!empty($ppffull)) {
                     // Tier 1 hit: treat as full-answer paste.
                     $events = $ppffull;
-                    debugging(
-                        '[EssayGuard] FIX-EG-PARTIAL-PASTE-FALLBACK tier1:'
-                            . ' qslot=' . $qslot . ' found=' . count($ppffull)
-                            . ' text_chars=' . $textcharsppf,
-                        DEBUG_DEVELOPER
-                    );
                 } else if (!empty($ppfpartial)) {
                     // Tier 2 hit: partial paste — mixed session.
                     $events = $ppfpartial;
                     $partialpasteonly = true;
-                    debugging(
-                        '[EssayGuard] FIX-EG-PARTIAL-PASTE-FALLBACK tier2:'
-                            . ' qslot=' . $qslot . ' found=' . count($ppfpartial)
-                            . ' text_chars=' . $textcharsppf,
-                        DEBUG_DEVELOPER
-                    );
                 }
             }
         }
@@ -889,7 +893,7 @@ class analyser {
             // HTML entity decode, the same value used by the Signal 12 gate).
             'text_chars'             => $textchars,
 
-            // ----------------------------------------------------------------
+            // ...
             // V1.2.225 FIX-EG-EXPLAINER-GATE-MISMATCH
             //
             // explainer.php has to decide, from this array alone, whether a signal fired.
@@ -1025,7 +1029,7 @@ class analyser {
 
         $textgate = ($textchars >= $minchars) || ($qslot > 0 && $textchars > 0);
         if ($effectivecharsadded >= $minchars || $pastecount > 0 || $largeinserts > 0 || $textgate) {
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 1: Paste/drop events — primary HIGH trigger (max 60 pts)
             // ANY paste event is a strong authorship signal.
             //
@@ -1171,7 +1175,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 2: Large insert events (delta > 20 chars) — catches
             // medium-sized pastes that don't meet the burst threshold (max 20 pts).
             // PASTE-WEIGHT (v1.2.212): scaled by the same paste_weight multiplier
@@ -1184,11 +1188,11 @@ class analyser {
                 $signalpts[2] = $s2;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 3: Typing speed — chars per second across the session.
             // > 15 cps = superhuman (AI generation or paste without JS paste event).
             // > 8 cps  = very fast but borderline (max 30 / 15 pts).
-            // ----------------------------------------------------------------
+            // ...
             // v1.2.225: scaled by $paste_derived_weight - in a pure-paste session this
             // signal is measuring how fast the clipboard is, not how fast the student is.
             $charspersec = ($effectivecharsadded * 1000.0) / $sessiontotalms;
@@ -1202,7 +1206,7 @@ class analyser {
                 $signalpts[3] = $s3;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 4: Low thinking pauses — genuine writers pause to think.
             // Zero major pauses (>2 s) for substantial content → suspicious
             // (max 20 pts).
@@ -1250,7 +1254,7 @@ class analyser {
                 $signalpts[4] = $s4;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 5: Backspace/correction ratio — very low editing (max 15 pts).
             // Human writers make mistakes and correct them. A paste-only session
             // (zero keystrokes) has no corrections at all — maximum suspicion.
@@ -1259,7 +1263,7 @@ class analyser {
             // checked only $pastecount > 0, so TinyMCE-intercepted pastes (which set
             // large_inserts=1 with pastecount=0) never triggered these +15 and +10 pt
             // bonuses. Extended both conditions to also cover $large_inserts > 0.
-            // ----------------------------------------------------------------
+            // ...
             // FIX-EG-PARTIAL-PASTE-S5S7 (v1.2.105): $partial_paste_only is true when
             // events came from the Tier-2 branch of FIX-EG-PARTIAL-PASTE-FALLBACK (mixed
             // session: student typed part and pasted part).  Treating such sessions as
@@ -1291,13 +1295,13 @@ class analyser {
                 $signalpts[5] = 8;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 6: Near-zero session typing time — content appeared almost
             // instantly, consistent with paste or programmatic insertion (max 25 pts).
             // Only fires when typing_time is non-zero (i.e. some events fired) but
             // still very short. Pure single-event paste sessions have typing_time=0
             // and are already covered by Signals 1 + 3 + 4 + 5.
-            // ----------------------------------------------------------------
+            // ...
             // v1.2.225: scaled by $paste_derived_weight - "content appeared almost
             // instantly, consistent with paste", which is the paste itself.
             if ($typingtime > 0 && $typingtime < 10000 && $effectivecharsadded > 50) {
@@ -1306,7 +1310,7 @@ class analyser {
                 $signalpts[6] = $s6;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 7: Typing entropy — suspiciously smooth rhythm (max 10 pts).
             //
             // v1.2.112 (TypeShield-aligned): prefer Shannon IKI entropy when
@@ -1340,7 +1344,7 @@ class analyser {
                 $signalpts[7] = 5;
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // FIX-EG-PASTE-NOT-COUNTED-SIX-TIMES (v1.3.0)
             //
             // In a paste session Signals 3, 4, 5, 6 and 7 are not independent evidence.
@@ -1379,7 +1383,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 8: Linguistic — sentence length uniformity (max 10 pts)
             //
             // FIX-EG-S8-DEDUP (v1.2.124): Gated with !$events_empty_for_scoring.
@@ -1398,7 +1402,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 9: Linguistic — vocabulary diversity (max 5 pts)
             //
             // FIX-EG-S8-DEDUP (v1.2.124): Same gate as Signal 8 — suppressed
@@ -1415,7 +1419,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 10 (TypeShield-matched, v1.2.112): IKI autocorrelation
             // lag-1. Human baseline ≈ 0.1. Highly repetitive (autocorr >> 0.1)
             // or artificially jittered (autocorr << 0) strongly suggests
@@ -1432,7 +1436,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 11 (TypeShield-matched, v1.2.112): Speed-burst coefficient
             // of variation. Human typing speed is highly variable across 10-second
             // windows; robotic/AI content is produced at a constant rate (low CV).
@@ -1448,7 +1452,7 @@ class analyser {
                 }
             }
 
-            // ----------------------------------------------------------------
+            // ...
             // SIGNAL 12 (TypeShield-matched, v1.2.112): Keystroke ratio.
             // Humans produce ~1.4 keystrokes per final character (edits, deletions).
             // A ratio well below 1.0 means most characters were inserted without
@@ -1640,33 +1644,15 @@ class analyser {
                     // Almost certainly a paste without JS event capture.
                     $signalpts[13] = 50;
                     $score += 50;
-                    debugging(
-                        '[EssayGuard] FIX-EG-S13: server_cps=' . $servercps
-                            . ' > 10.0 → +50 pts HIGH signal.'
-                            . ' s13_no_paste_evidence=' . (int)$s13nopasteevidence
-                            . ' userid=' . $userid . ' cmid=' . $cmid . ' qslot=' . $qslot
-                            . ' text_chars=' . $textchars . ' duration_sec=' . $attemptdurationsec
-                            . ' keystrokes=' . $totalkeystrokes,
-                        DEBUG_DEVELOPER
-                    );
                 } else if ($servercps > 4.0) {
                     // Suspiciously fast for a sustained attempt (48+ WPM sustained).
                     $signalpts[13] = 25;
                     $score += 25;
-                    debugging(
-                        '[EssayGuard] FIX-EG-S13: server_cps=' . $servercps
-                            . ' > 4.0 → +25 pts MEDIUM signal.'
-                            . ' s13_no_paste_evidence=' . (int)$s13nopasteevidence
-                            . ' userid=' . $userid . ' cmid=' . $cmid . ' qslot=' . $qslot
-                            . ' text_chars=' . $textchars . ' duration_sec=' . $attemptdurationsec
-                            . ' keystrokes=' . $totalkeystrokes,
-                        DEBUG_DEVELOPER
-                    );
                 }
             }
         }
 
-        // ----------------------------------------------------------------
+        // ...
         // SIGNAL 14: Transition density (max 10 pts, textual corroboration)
         //
         // CLAIM-EG-TRANSITION (v1.4.0). Discourse markers per 100 words. Generated prose
@@ -1678,7 +1664,7 @@ class analyser {
         // This is a property of the TEXT, not of the student. An ESL writer taught to
         // signpost, and a VET answer written to a template the training package asks
         // for, both look like this. It is corroboration and is capped as such below.
-        // ----------------------------------------------------------------
+        // ...
         $transitiondensity = (float)($linguistic['transition_density'] ?? 0.0);
         if (!$eventsemptyforscoring && $transitiondensity > 0.0) {
             if ($transitiondensity >= 10.0) {
@@ -1690,7 +1676,7 @@ class analyser {
             }
         }
 
-        // ----------------------------------------------------------------
+        // ...
         // SIGNAL 15: Paragraph uniformity (max 10 pts, textual corroboration)
         //
         // CLAIM-EG-PARAGRAPH (v1.4.0). Sentence variance one level up. Generated prose
@@ -1698,7 +1684,7 @@ class analyser {
         // long middle and an uneven tail. Requires at least three paragraphs — variance
         // across two is not a measurement, and the single-sentence tautology this engine
         // used to commit is not repeated here.
-        // ----------------------------------------------------------------
+        // ...
         $paragraphcount    = (int)($linguistic['paragraph_count'] ?? 0);
         $paragraphvariance = (float)($linguistic['paragraph_variance'] ?? 0.0);
         if (!$eventsemptyforscoring && $paragraphcount >= 3 && $paragraphvariance > 0.0) {
@@ -1711,7 +1697,7 @@ class analyser {
             }
         }
 
-        // ----------------------------------------------------------------
+        // ...
         // SIGNAL 16: Transcription pattern (max 15 pts, behavioural)
         //
         // CLAIM-EG-TRANSCRIPTION (v1.4.0). The README used to claim detection of AI text
@@ -1724,10 +1710,10 @@ class analyser {
         // inference.
         //
         // Three things together, never one alone:
-        //   - the student repeatedly left the window and came back (reading a source),
-        //   - with almost no revision (transcribers do not rewrite),
-        //   - at a steady rhythm (composition speeds up and slows down with thought).
-        // ----------------------------------------------------------------
+        // - the student repeatedly left the window and came back (reading a source),
+        // - with almost no revision (transcribers do not rewrite),
+        // - at a steady rhythm (composition speeds up and slows down with thought).
+        // ...
         $meanblurgap = !empty($blurgaps) ? array_sum($blurgaps) / count($blurgaps) : 0.0;
         if (
             !$eventsemptyforscoring
@@ -1853,20 +1839,7 @@ class analyser {
                 && !$rhythmlooksautomated
                 && !$rhythmperfectlyflat
         ) {
-            // V1.2.224: capture the pre-cap score. This interpolated $score AFTER the
-            // assignment above, so the message always read "capped at 29 (was 29)" - the
-            // one number it existed to report was the one it could never show.
-            $precap = $score;
             $score = min($score, 29.0);
-            debugging(
-                '[EssayGuard] FIX-EG-TYPING-FALSE-POSITIVE: paste gate fired,'
-                    . ' score capped at 29 (was ' . $precap . ').'
-                    . ' pastecount=' . $pastecount . ' large_inserts=' . $largeinserts
-                    . ' chars_per_sec=' . round($charspersec, 2)
-                    . ' entropy_score=' . $entropyscore
-                    . ' userid=' . $userid . ' cmid=' . $cmid . ' qslot=' . $qslot,
-                DEBUG_DEVELOPER
-            );
         }
 
         $score = max(0.0, min(100.0, $score));
@@ -2034,19 +2007,6 @@ class analyser {
             if ($perqmaxrs !== false && $perqmaxrs !== null) {
                 $perqmaxint = (int)round((float)$perqmaxrs * 100);
                 if ($perqmaxint > $score100) {
-                    debugging(
-                        sprintf(
-                            '[EssayGuard] FIX-EG-AGG-PERQ-CONSISTENCY: elevating aggregate'
-                            . ' from %d to %d (max per-question, no events)'
-                            . ' userid=%d cmid=%d attemptkey=%s',
-                            $score100,
-                            $perqmaxint,
-                            $userid,
-                            $cmid,
-                            substr($attemptkey, 0, 12)
-                            ),
-                        DEBUG_DEVELOPER
-                    );
                     $score100  = $perqmaxint;
                     $riskscore = $score100 / 100.0;
                     $risklevel = self::risk_level($score100);
@@ -2131,18 +2091,6 @@ class analyser {
             // $events_empty_for_scoring is false and the normal update path runs.
             if ($score100 === 0 && ((float)$existing->riskscore > 0.0) && $eventsemptyforscoring) {
                 $preserved100 = (int)round((float)$existing->riskscore * 100);
-                debugging(
-                    sprintf(
-                        '[EssayGuard] score_attempt SKIP: no events, preserving existing'
-                        . ' riskscore=%.2f for userid=%d cmid=%d qslot=%d attemptkey=%s',
-                        (float)$existing->riskscore,
-                        $userid,
-                        $cmid,
-                        $qslot,
-                        substr($attemptkey, 0, 12)
-                        ),
-                    DEBUG_DEVELOPER
-                );
                 return [
                     'riskscore'    => (float)$existing->riskscore,
                     'risklevel'    => self::risk_level($preserved100),
@@ -2246,7 +2194,7 @@ class analyser {
     }
 
     /**
-     * v1.2.112: 3-tier risk levels — thresholds aligned with TypeShield LTI.
+     * 3-tier risk levels — thresholds aligned with TypeShield LTI.
      *   0–29   → low    (Original — normal human typing behaviour)
      *   30–65  → medium (Suspicious — AI retyping, robotic rhythm, or minor paste)
      *   66–100 → high   (High — definitive paste / AI-speed text detected)

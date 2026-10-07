@@ -54,21 +54,14 @@ class before_footer {
     public static function callback(
         \core\hook\output\before_footer_html_generation $hook
     ): void {
-        global $PAGE, $DB, $OUTPUT;
+        global $PAGE, $DB, $OUTPUT, $CFG;
 
         if (isguestuser() || !isloggedin()) {
             return;
         }
-        // FIX-EG-BEFORE-FOOTER-ENABLED (v1.2.114): get_config() returns PHP false when
-        // the key has never been saved (fresh install where admin hasn't submitted the
-        // settings page yet). !false = true → the old guard fired on every fresh install,
-        // making the floating Essay Guard Report button permanently invisible to teachers.
-        // Identical fix to FIX-EG-ENABLED-CHECK-INCONSISTENT (observer.php v1.2.94) and
-        // FIX-EG-GLOBAL-ENABLED-MISSING (inject_tracker v1.2.88):
-        // Treat a missing key as enabled; only skip when the key EXISTS and is explicitly
-        // set to a disabled value ('0' or empty string).
-        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($globalenabled !== false && empty($globalenabled)) {
+        require_once($CFG->dirroot . '/plagiarism/essayguard/lib.php');
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             return;
         }
         if (during_initial_install()) {
@@ -121,7 +114,7 @@ class before_footer {
             if (empty($mygroups)) {
                 $count = 0;
             } else {
-                list($ginsql, $gparams) = $DB->get_in_or_equal(
+                [$ginsql, $gparams] = $DB->get_in_or_equal(
                     array_keys($mygroups),
                     SQL_PARAMS_NAMED,
                     'eggrp'
@@ -148,26 +141,10 @@ class before_footer {
 
         $reporturl = new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cm->id]);
 
-        // V1.2.221: was a hardcoded English literal, unlike every other visible string here.
-            $label = get_string('footerreportbutton', 'plagiarism_essayguard');
-        $badge = $count > 0
-            ? '<span style="background:#fff;color:#6c3483;border-radius:10px;padding:1px 7px;'
-              . 'font-size:0.78rem;font-weight:700;margin-left:6px;">' . $count . '</span>'
-            : '';
-
-        $html = '<div style="position:fixed;top:80px;right:0;z-index:9999;">'
-              . '<a href="' . $reporturl->out(false) . '" '
-              . 'style="display:inline-flex;align-items:center;background:#6c3483;color:#fff;'
-              . 'padding:7px 14px 7px 12px;border-radius:8px 0 0 8px;font-size:0.88rem;'
-              . 'font-weight:600;text-decoration:none;box-shadow:-2px 2px 6px rgba(0,0,0,0.18);'
-              . 'gap:4px;" title="' . s($label) . '">'
-              . '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" '
-              . 'viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" '
-              . 'style="flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" '
-              . 'd="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
-              . s($label) . $badge
-              . '</a></div>';
-
+        $html = $OUTPUT->render_from_template('plagiarism_essayguard/footer_report_button', [
+            'reporturl' => $reporturl->out(false),
+            'count' => $count,
+        ]);
         $hook->add_html($html);
     }
 }

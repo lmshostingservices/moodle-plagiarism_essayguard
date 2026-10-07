@@ -14,180 +14,147 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Essay Guard  -  risk-badge injector for the quiz grading overview table.
+ * Risk-badge injector for the quiz grading overview table.
  *
- * Moodle's plagiarism_get_links() API is only invoked on individual attempt-review
- * pages; the quiz grading OVERVIEW table (/mod/quiz/report.php?mode=grading) never
- * calls it  -  so Essay Guard badges were permanently absent from the page where
- * teachers spend most of their grading time (FIX-EG-NO-BADGE-OVERVIEW, v1.2.60).
- *
- * This AMD module is loaded by before_footer.php for teachers with viewreport on
- * mod-quiz-report pages. It:
- *   1. Scans every <tr> for a link to /user/view.php to map userid  ->  row.
- *   2. Calls plagiarism_essayguard_get_badges (batch web-service, one round-trip).
- *   3. Injects a coloured risk badge inside the student-name cell of each row.
+ * Core does not call plagiarism_get_links() for the quiz grading overview, so badges
+ * are added here: map each table row to a user id, fetch all badges in one web
+ * service call, and append a badge to the student-name cell.
  *
  * @module     plagiarism_essayguard/reporter
  * @copyright  2026 LMS-Labs
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['core/ajax'], function(Ajax) {
-    'use strict';
 
-    // v1.2.112: Thresholds and key names aligned with TypeShield LTI.
-    //   low    → green  (0–29)
-    //   medium → amber  (30–65)  TypeShield hsl(38 100% 95%) / hsl(28 80% 32%)
-    //   high   → red    (66–100)
-    // Legacy DB values 'partial' and 'mild' are mapped to medium colours.
-    var COLOURS = {
-        low:     {bg: '#f0fdf4', text: '#166534', border: '#86efac', dot: '#22c55e'},
-        medium:  {bg: '#fff7ed', text: '#7c2d12', border: '#fdba74', dot: '#f97316'},
-        high:    {bg: '#fef2f2', text: '#991b1b', border: '#fca5a5', dot: '#ef4444'},
-        partial: {bg: '#fff7ed', text: '#7c2d12', border: '#fdba74', dot: '#f97316'},   // legacy alias
-        mild:    {bg: '#fff7ed', text: '#7c2d12', border: '#fdba74', dot: '#f97316'},   // legacy alias
-        unmeasured: {bg: '#f3f4f6', text: '#4b5563', border: '#d1d5db', dot: '#9ca3af'},
-    };
+import Ajax from 'core/ajax';
+import {getStrings} from 'core/str';
+import Notification from 'core/notification';
 
-    var LABELS = {
-        low:     'Low',
-        medium:  'Medium',
-        high:    'High',
-        partial: 'Medium',   // legacy alias
-        mild:    'Medium',   // legacy alias
-        unmeasured: 'Not assessed',
-    };
+/** Risk levels that have their own badge style. Legacy values map to medium. */
+const LEVELMAP = {
+    low: 'low',
+    medium: 'medium',
+    high: 'high',
+    partial: 'medium',
+    mild: 'medium',
+    unmeasured: 'unmeasured',
+};
 
-    /**
-     * Build the inline HTML for a risk badge pill.
-     */
-    function buildBadgeHtml(risklevel, score100) {
-        // FIX-EG-JS-FAILS-GREEN (v1.3.0): an unrecognised risk level rendered a GREEN
-        // badge labelled "Original" — reassuring, and borrowing Turnitin's word for
-        // "this is the student's own work", on a value the code did not understand.
-        // render_badge() in lib.php deliberately does the opposite and falls back to
-        // medium; this path never got the same treatment. A display fallback for an
-        // unknown value must not be the reassuring one.
-        var c = COLOURS[risklevel] || COLOURS.medium;
-        var label = LABELS[risklevel] || 'Review';
-        var wrapStyle = [
-            'display:inline-flex',
-            'align-items:center',
-            'gap:5px',
-            'padding:2px 8px',
-            'border-radius:999px',
-            'font-size:0.75rem',
-            'font-weight:700',
-            'white-space:nowrap',
-            'vertical-align:middle',
-            'margin-left:6px',
-            'background:' + c.bg,
-            'color:' + c.text,
-            'border:1px solid ' + c.border,
-        ].join(';');
-        var dotStyle = [
-            'display:inline-block',
-            'width:6px',
-            'height:6px',
-            'border-radius:50%',
-            'flex-shrink:0',
-            'background:' + c.dot,
-        ].join(';');
-        return '<span style="' + wrapStyle + '">'
-             + '<span style="' + dotStyle + '"></span>'
-             + '<span>' + label + ' \u00b7 ' + score100 + '%</span>'
-             + '</span>';
-    }
+/**
+ * Extract the numeric user id from a /user/view.php?id=X link.
+ *
+ * @param {String} href Link target.
+ * @returns {Number} The user id, or 0.
+ */
+const extractUserId = (href) => {
+    const m = (href || '').match(/[?&]id=(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+};
 
-    /**
-     * Extract the numeric user id from a /user/view.php?id=X link href.
-     */
-    function extractUserId(href) {
-        var m = (href || '').match(/[?&]id=(\d+)/);
-        return m ? parseInt(m[1], 10) : 0;
-    }
+/**
+ * Build one badge element.
+ *
+ * @param {String} state Canonical state (low, medium, high, unmeasured).
+ * @param {String} text Badge text.
+ * @returns {HTMLElement}
+ */
+const buildBadge = (state, text) => {
+    const wrapper = document.createElement('span');
+    wrapper.className = 'essayguard-reporter-badge';
 
-    /**
-     * Scan the page for grading table rows, call the web service, inject badges.
-     */
-    function doInject(cmid) {
-        if (!cmid) {
-            return;
-        }
+    const badge = document.createElement('span');
+    badge.className = 'essayguard-badge essayguard-badge-' + state;
 
-        // Build userid  ->  <tr> map.  Walk every table row and pick up user links.
-        var allRows = document.querySelectorAll('table tr');
-        var rowMap  = {};
+    const dot = document.createElement('span');
+    dot.className = 'essayguard-badge-dot essayguard-badge-dot-' + state;
+    dot.setAttribute('aria-hidden', 'true');
 
-        allRows.forEach(function(tr) {
-            var links = tr.querySelectorAll('a[href*="user/view.php"]');
-            links.forEach(function(link) {
-                var uid = extractUserId(link.getAttribute('href'));
-                if (uid && !rowMap[uid]) {
-                    rowMap[uid] = tr;
-                }
-            });
+    badge.appendChild(dot);
+    badge.appendChild(document.createTextNode(text));
+    wrapper.appendChild(badge);
+    return wrapper;
+};
+
+/**
+ * Map each grading table row to the user it belongs to.
+ *
+ * @returns {Object} userid => <tr>
+ */
+const mapRows = () => {
+    const rowMap = {};
+    document.querySelectorAll('table tr').forEach((tr) => {
+        tr.querySelectorAll('a[href*="user/view.php"]').forEach((link) => {
+            const uid = extractUserId(link.getAttribute('href'));
+            if (uid && !rowMap[uid]) {
+                rowMap[uid] = tr;
+            }
         });
+    });
+    return rowMap;
+};
 
-        var userids = Object.keys(rowMap).map(Number);
-        if (!userids.length) {
-            return;
-        }
+/**
+ * The cell that holds the student's profile link, or the first cell.
+ *
+ * @param {HTMLElement} tr Table row.
+ * @returns {HTMLElement|null}
+ */
+const targetCell = (tr) => {
+    const cells = Array.from(tr.querySelectorAll('td'));
+    return cells.find((td) => td.querySelector('a[href*="user/view.php"]')) || cells[0] || null;
+};
 
-        Ajax.call([{
-            methodname: 'plagiarism_essayguard_get_badges',
-            args: {cmid: cmid, userids: userids},
-        }])[0].then(function(badges) {
-            badges.forEach(function(entry) {
-                if (!entry.hasbadge) {
-                    return;
-                }
-                var tr = rowMap[entry.userid];
-                if (!tr) {
-                    return;
-                }
-
-                // Prefer the <td> that contains the user profile link.
-                var cells = tr.querySelectorAll('td');
-                var targetCell = null;
-                cells.forEach(function(td) {
-                    if (!targetCell && td.querySelector('a[href*="user/view.php"]')) {
-                        targetCell = td;
-                    }
-                });
-                if (!targetCell && cells.length) {
-                    targetCell = cells[0];
-                }
-                if (!targetCell) {
-                    return;
-                }
-
-                // Inject once only.
-                if (targetCell.querySelector('.essayguard-reporter-badge')) {
-                    return;
-                }
-
-                var wrapper = document.createElement('span');
-                wrapper.className = 'essayguard-reporter-badge';
-                wrapper.innerHTML = buildBadgeHtml(entry.risklevel, entry.score100);
-                targetCell.appendChild(wrapper);
-            });
-            return badges;
-        }).catch(function(err) {
-            window.console && window.console.warn('[EssayGuard reporter]', err);
-        });
+/**
+ * Entry point.
+ *
+ * @param {Object} config
+ * @param {Number} config.cmid Quiz course module id.
+ */
+export const init = async(config) => {
+    const cmid = (config && config.cmid) ? parseInt(config.cmid, 10) : 0;
+    if (!cmid) {
+        return;
     }
 
-    /**
-     * Entry point  -  called via js_call_amd('plagiarism_essayguard/reporter', 'init', [config]).
-     *
-     * @param {Object} config  {cmid: <int>}
-     */
-    var init = function(config) {
-        var cmid = (config && config.cmid) ? parseInt(config.cmid, 10) : 0;
-        doInject(cmid);
-    };
+    const rowMap = mapRows();
+    const userids = Object.keys(rowMap).map(Number);
+    if (!userids.length) {
+        return;
+    }
 
-    return {
-        init: init,
-    };
-});
+    try {
+        const [badges, strings] = await Promise.all([
+            Ajax.call([{
+                methodname: 'plagiarism_essayguard_get_badges',
+                args: {cmid: cmid, userids: userids},
+            }])[0],
+            getStrings([
+                {key: 'risklow', component: 'plagiarism_essayguard'},
+                {key: 'riskmedium', component: 'plagiarism_essayguard'},
+                {key: 'riskhigh', component: 'plagiarism_essayguard'},
+                {key: 'badgeunmeasured', component: 'plagiarism_essayguard'},
+                {key: 'reporter_review', component: 'plagiarism_essayguard'},
+            ]),
+        ]);
+        const labels = {
+            low: strings[0],
+            medium: strings[1],
+            high: strings[2],
+            unmeasured: strings[3],
+        };
+
+        badges.forEach((entry) => {
+            const tr = entry.hasbadge ? rowMap[entry.userid] : null;
+            const cell = tr ? targetCell(tr) : null;
+            if (!cell || cell.querySelector('.essayguard-reporter-badge')) {
+                return;
+            }
+            // An unrecognised level is shown as medium ("Review"), never as low.
+            const state = LEVELMAP[entry.risklevel] || 'medium';
+            const level = LEVELMAP[entry.risklevel] ? labels[state] : strings[4];
+            const text = state === 'unmeasured' ? level : level + ' · ' + entry.score100 + '%';
+            cell.appendChild(buildBadge(state, text));
+        });
+    } catch (error) {
+        Notification.exception(error);
+    }
+};

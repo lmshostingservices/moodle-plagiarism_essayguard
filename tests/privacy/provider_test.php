@@ -218,12 +218,12 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->export_context_data_for_user((int)$user->id, $act['context'], 'plagiarism_essayguard');
 
         $data = writer::with_context(
-            $act['context'])->get_data([
+            $act['context']
+        )->get_data([
                 get_string('pluginname', 'plagiarism_essayguard'),
                 get_string('privacy:export:telemetry', 'plagiarism_essayguard'),
                 'akms',
-                ]
-        );
+                ]);
         $this->assertNotEmpty($data);
         $this->assertSame(2, $data->event_count);
         $this->assertSame(
@@ -255,12 +255,12 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->export_context_data_for_user((int)$user->id, $act['context'], 'plagiarism_essayguard');
 
         $data = writer::with_context(
-            $act['context'])->get_data([
+            $act['context']
+        )->get_data([
                 get_string('pluginname', 'plagiarism_essayguard'),
                 get_string('privacy:export:telemetry', 'plagiarism_essayguard'),
                 'aksec',
-                ]
-        );
+                ]);
         $this->assertSame(\core_privacy\local\request\transform::datetime($seconds), $data->first_event);
     }
 
@@ -297,12 +297,12 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->export_context_data_for_user((int)$user->id, $act['context'], 'plagiarism_essayguard');
 
         $data = (array)writer::with_context(
-            $act['context'])->get_data([
+            $act['context']
+        )->get_data([
                 get_string('pluginname', 'plagiarism_essayguard'),
                 get_string('privacy:export:scores', 'plagiarism_essayguard'),
                 'akexport',
-                ]
-        );
+                ]);
         $this->assertNotEmpty($data);
 
         // Everything declared, except the identifiers the export path already carries.
@@ -354,11 +354,11 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
         $this->export_context_data_for_user((int)$user->id, $system, 'plagiarism_essayguard');
 
         $data = (array)writer::with_context(
-            $system)->get_data([
+            $system
+        )->get_data([
                 get_string('pluginname', 'plagiarism_essayguard'),
                 get_string('privacy:export:fingerprint', 'plagiarism_essayguard'),
-                ]
-        );
+                ]);
         $expected = array_diff(array_keys($DB->get_columns('plagiarism_essayguard_fp')), ['id', 'userid']);
         foreach ($expected as $column) {
             $this->assertArrayHasKey($column, $data, "Baseline column {$column} is declared but not exported.");
@@ -442,7 +442,7 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
                 \core_user::get_user($alice->id),
                 'plagiarism_essayguard',
                 [$act['context']->id, \context_system::instance()->id]
-                )
+            )
         );
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev', ['userid' => $alice->id]));
@@ -627,7 +627,7 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
                 $act['context'],
                 'plagiarism_essayguard',
                 [$alice->id]
-                )
+            )
         );
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev', ['userid' => $alice->id]));
@@ -680,11 +680,151 @@ final class provider_test extends \core_privacy\tests\provider_testcase {
                 \core_user::get_user($user->id),
                 'plagiarism_essayguard',
                 $contextlist->get_contextids()
-                )
+            )
         );
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_ev', ['userid' => $user->id]));
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $user->id]));
         $this->assertSame([], provider::get_contexts_for_userid((int)$user->id)->get_contextids());
+    }
+
+    /**
+     * Insert one per-metric baseline row.
+     *
+     * @param int $userid
+     * @param string $metric
+     * @return void
+     */
+    private function add_fpm(int $userid, string $metric = 'wpm'): void {
+        global $DB;
+        $DB->insert_record('plagiarism_essayguard_fpm', (object)[
+            'userid' => $userid, 'contexttype' => 'quiz', 'metricname' => $metric,
+            'samplen' => 3, 'runmean' => 41.5, 'runm2' => 12.25, 'timemodified' => 1767322845,
+        ]);
+    }
+
+    /**
+     * The per-metric baseline table and the finalise throttle preference are declared.
+     *
+     * @return void
+     */
+    public function test_fpm_table_and_fin_preference_are_declared(): void {
+        $collection = provider::get_metadata(new collection('plagiarism_essayguard'));
+        $tables = [];
+        $prefs = [];
+        foreach ($collection->get_collection() as $item) {
+            if ($item instanceof \core_privacy\local\metadata\types\database_table) {
+                $tables[$item->get_name()] = array_keys($item->get_privacy_fields());
+            }
+            if ($item instanceof \core_privacy\local\metadata\types\user_preference) {
+                $prefs[] = $item->get_name();
+            }
+        }
+        $this->assertArrayHasKey('plagiarism_essayguard_fpm', $tables);
+        $this->assertEqualsCanonicalizing(
+            ['userid', 'contexttype', 'metricname', 'samplen', 'runmean', 'runm2', 'timemodified'],
+            $tables['plagiarism_essayguard_fpm']
+        );
+        $this->assertContains('essayguard_fin_', $prefs);
+    }
+
+    /**
+     * A user who only has per-metric statistics is found in the system context, and
+     * appears in the system context user list.
+     *
+     * @return void
+     */
+    public function test_fpm_only_user_is_found_at_system_context(): void {
+        $this->resetAfterTest();
+        $user = $this->getDataGenerator()->create_user();
+        $this->add_fpm($user->id);
+
+        $contexts = provider::get_contexts_for_userid($user->id)->get_contextids();
+        $this->assertEquals([\context_system::instance()->id], array_values(array_map('intval', $contexts)));
+
+        $userlist = new userlist(\context_system::instance(), 'plagiarism_essayguard');
+        provider::get_users_in_context($userlist);
+        $this->assertContains((int)$user->id, array_map('intval', $userlist->get_userids()));
+    }
+
+    /**
+     * The per-metric statistics are exported in the system context.
+     *
+     * @return void
+     */
+    public function test_fpm_is_exported(): void {
+        $this->resetAfterTest();
+        $user = $this->getDataGenerator()->create_user();
+        $this->add_fpm($user->id, 'wpm');
+        $this->add_fpm($user->id, 'pause_mean');
+
+        $system = \context_system::instance();
+        provider::export_user_data(new approved_contextlist($user, 'plagiarism_essayguard', [$system->id]));
+
+        $data = writer::with_context($system)->get_data([
+            get_string('pluginname', 'plagiarism_essayguard'),
+            get_string('privacy:export:fingerprintmetrics', 'plagiarism_essayguard'),
+        ]);
+        $this->assertCount(2, $data->metrics);
+        $names = array_column($data->metrics, 'metricname');
+        $this->assertEqualsCanonicalizing(['wpm', 'pause_mean'], $names);
+        $this->assertSame(3, $data->metrics[0]['samplen']);
+    }
+
+    /**
+     * Every deletion path removes per-metric statistics: one user, a user list in the
+     * system context, and everyone in the system context.
+     *
+     * @return void
+     */
+    public function test_fpm_is_deleted_by_every_path(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $system = \context_system::instance();
+        [$a, $b, $c] = [
+            $this->getDataGenerator()->create_user(),
+            $this->getDataGenerator()->create_user(),
+            $this->getDataGenerator()->create_user(),
+        ];
+        foreach ([$a, $b, $c] as $u) {
+            $this->add_fpm($u->id);
+        }
+
+        provider::delete_data_for_user(new approved_contextlist($a, 'plagiarism_essayguard', [$system->id]));
+        $this->assertFalse($DB->record_exists('plagiarism_essayguard_fpm', ['userid' => $a->id]));
+        $this->assertTrue($DB->record_exists('plagiarism_essayguard_fpm', ['userid' => $b->id]));
+
+        provider::delete_data_for_users(new approved_userlist($system, 'plagiarism_essayguard', [$b->id]));
+        $this->assertFalse($DB->record_exists('plagiarism_essayguard_fpm', ['userid' => $b->id]));
+        $this->assertTrue($DB->record_exists('plagiarism_essayguard_fpm', ['userid' => $c->id]));
+
+        $DB->insert_record('plagiarism_essayguard_fp', (object)['userid' => $c->id, 'samplecount' => 1]);
+        provider::delete_data_for_all_users_in_context($system);
+        $this->assertSame(0, $DB->count_records('plagiarism_essayguard_fpm'));
+        $this->assertSame(0, $DB->count_records('plagiarism_essayguard_fp'));
+    }
+
+    /**
+     * The finalise throttle preference is exported with its own description and erased.
+     *
+     * @return void
+     */
+    public function test_fin_preference_is_exported_and_deleted(): void {
+        global $DB;
+        $this->resetAfterTest();
+        $act  = $this->make_activity();
+        $user = $this->getDataGenerator()->create_user();
+        $name = 'essayguard_fin_' . $act['cm']->id;
+        set_user_preference($name, 1767322845, $user->id);
+
+        provider::export_user_preferences($user->id);
+        $prefs = writer::with_context(\context_system::instance())->get_user_preferences('plagiarism_essayguard');
+        $this->assertSame(
+            get_string('privacy:metadata:preference:essayguard_fin', 'plagiarism_essayguard'),
+            $prefs->{$name}->description
+        );
+
+        provider::delete_data_for_user(new approved_contextlist($user, 'plagiarism_essayguard', [$act['context']->id]));
+        $this->assertFalse($DB->record_exists('user_preferences', ['userid' => $user->id, 'name' => $name]));
     }
 }

@@ -73,7 +73,7 @@ class finalize_attempt extends external_api {
             'cmid'        => new external_value(PARAM_INT, 'Course module id'),
             'attemptkey'  => new external_value(PARAM_ALPHANUMEXT, 'Typing session key'),
             'finaltext'   => new external_value(
-                PARAM_RAW, // pipeline-ignore: PARAM_RAW - the student's verbatim essay; any sanitising would corrupt the linguistic measurements. Feeds numeric analysis only, is never stored verbatim by this path and is never rendered.
+                PARAM_RAW, // pipeline-ignore: PARAM_RAW - verbatim essay, analysed numerically only.
                 'Final submitted text for linguistic analysis',
                 VALUE_DEFAULT,
                 ''
@@ -168,13 +168,8 @@ class finalize_attempt extends external_api {
         // file. Closing the write handle here avoids that contention.
         \core\session\manager::write_close();
 
-        // FIX-EG-ENABLED-CHECK-INCONSISTENT (v1.2.94): get_config() returns PHP false
-        // when the key has never been saved (fresh install). !false = true → this
-        // early-exit fired on fresh installs, making finalizeAttempt return empty_result
-        // so the JS badge was never shown and no score record was written.
-        // inject_tracker() was corrected in v1.2.88; applying the same fix here.
-        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($globalenabled !== false && empty($globalenabled)) {
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             return self::empty_result();
         }
 
@@ -247,7 +242,7 @@ class finalize_attempt extends external_api {
     }
 
     /**
-     * v1.2.219: The student-facing response. Scoring ran and was persisted; the caller
+     * The student-facing response. Scoring ran and was persisted; the caller
      * simply is not entitled to read the result. ok:true so the JS knows the call
      * succeeded, empty risklevel so it knows not to render a badge.
      *
@@ -289,7 +284,7 @@ class finalize_attempt extends external_api {
                 new external_value(PARAM_TEXT, 'Explanation string'),
                 'Array of human-readable explanations for the instructor'
             ),
-            'metricsjson'        => new external_value(PARAM_RAW, 'Full metrics JSON'), // pipeline-ignore: PARAM_RAW - return value, json_encode()'d server-side.
+            'metricsjson'        => new external_value(PARAM_RAW, 'Full metrics JSON'), // pipeline-ignore: PARAM_RAW - output.
         ]);
     }
 

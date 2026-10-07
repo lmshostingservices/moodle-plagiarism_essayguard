@@ -118,32 +118,26 @@ class cleanup extends \core\task\scheduled_task {
             }
         }
 
-        // PRIVACY-EG-FINGERPRINT-RETENTION (v1.3.0): the behavioural profile was kept
-        // forever and by anything.
-        //
-        // plagiarism_essayguard_fp holds a per-student writing profile — typical speed,
-        // pause pattern, correction rate, rhythm — accumulated across submissions and
-        // used to decide whether a later submission looks like the same person. Raw
-        // events were pruned; this was not, not even when the course module was
-        // deleted. The student disclosure did not mention it existed. That is storage
-        // limitation (GDPR Art. 5(1)(e)) and APP 11.2 unaddressed, on the most sensitive
-        // thing the plugin holds.
-        //
-        // A profile outlives the scores it was built from by the same retention period,
-        // and no longer survives having nothing left to describe.
-        $fporphans = $DB->get_fieldset_sql(
-            "SELECT fp.id
-               FROM {plagiarism_essayguard_fp} fp
-              WHERE fp.timemodified < :cutoff
-                AND NOT EXISTS (SELECT 1
-                                  FROM {plagiarism_essayguard_sc} sc
-                                 WHERE sc.userid = fp.userid)",
-            ['cutoff' => $cutoff]
-        );
+        // Writing baselines (fp, and the per-metric statistics in fpm) are pruned once
+        // they are older than the retention period and no score record remains that
+        // they could describe.
         $fpdeleted = 0;
-        if (!empty($fporphans)) {
-            $DB->delete_records_list('plagiarism_essayguard_fp', 'id', $fporphans);
-            $fpdeleted = count($fporphans);
+        foreach (['plagiarism_essayguard_fp', 'plagiarism_essayguard_fpm'] as $table) {
+            $orphans = $DB->get_fieldset_sql(
+                "SELECT t.id
+                   FROM {" . $table . "} t
+                  WHERE t.timemodified < :cutoff
+                    AND NOT EXISTS (SELECT 1
+                                      FROM {plagiarism_essayguard_sc} sc
+                                     WHERE sc.userid = t.userid)",
+                ['cutoff' => $cutoff]
+            );
+            foreach (array_chunk($orphans, self::DELETE_BATCH_SIZE) as $chunk) {
+                $DB->delete_records_list($table, 'id', $chunk);
+            }
+            if ($table === 'plagiarism_essayguard_fp') {
+                $fpdeleted = count($orphans);
+            }
         }
 
         mtrace(

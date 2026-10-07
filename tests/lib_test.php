@@ -161,14 +161,14 @@ final class lib_test extends \advanced_testcase {
     }
 
     /**
-     * Both declared preferences are regexps guarded by the never-writable callback.
+     * Every declared preference is a regexp guarded by the never-writable callback.
      *
      * @return void
      */
     public function test_user_preferences_are_all_locked_down(): void {
         $prefs = plagiarism_essayguard_user_preferences();
         $this->assertSame(
-            ['essayguard_ak_.*', 'essayguard_lastscore_.*'],
+            ['essayguard_ak_.*', 'essayguard_lastscore_.*', 'essayguard_fin_.*'],
             array_keys($prefs)
         );
         foreach ($prefs as $definition) {
@@ -180,6 +180,7 @@ final class lib_test extends \advanced_testcase {
         }
         $this->assertSame('', $prefs['essayguard_ak_.*']['default']);
         $this->assertSame('0', $prefs['essayguard_lastscore_.*']['default']);
+        $this->assertSame('0', $prefs['essayguard_fin_.*']['default']);
     }
 
     /**
@@ -199,7 +200,7 @@ final class lib_test extends \advanced_testcase {
             $html
         );
         $this->assertStringContainsString(
-            '<span class="essayguard-badge-dot essayguard-badge-dot-' . $expected . '">',
+            '<span class="essayguard-badge-dot essayguard-badge-dot-' . $expected . '"',
             $html
         );
     }
@@ -268,7 +269,7 @@ final class lib_test extends \advanced_testcase {
             array_values(array_map(
                 static fn($qa) => $qa->id,
                 $result
-                ))
+            ))
         );
     }
 

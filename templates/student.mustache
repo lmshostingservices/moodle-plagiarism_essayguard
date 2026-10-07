@@ -1,0 +1,221 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/student
+
+    Essay Guard per-student detail report (teacher view): overall score card, baseline
+    confidence, indicators, behavioural metrics, signal breakdown, per-question cards
+    and interpretation guide.
+
+    Classes required for JS:
+    * none (behaviour is attached by data-action attributes, see plagiarism_essayguard/student)
+
+    Data attributes required for JS:
+    * data-action="plagiarism_essayguard-student-togglecard" on per-question card headers
+    * data-action="plagiarism_essayguard-student-toggletext" on more/less links
+
+    Context variables required for this template:
+    * backurl - string URL of the class report
+    * heading - string page heading (plugin name and student name)
+    * activityname - string activity name
+    * coursename - string course full name
+    * hasdata - bool whether a score record exists
+    * nodatanotification - string pre-rendered notification HTML (only when hasdata is false)
+    * overall - object: level, unmeasured, score, label, barwidth, lastscored, legendlow, legendmedium, legendhigh
+    * baseline - object: status (stable|preliminary|none), label, stable, context, hasrows,
+      rows[] (measurement, observed, mean, sd, z)
+    * hasexplanations - bool
+    * explanations - string[] indicator sentences
+    * metrics - array of {label, value}
+    * signaltable - object, see plagiarism_essayguard/student_signal_table
+    * hasquestions - bool
+    * questions - array, see plagiarism_essayguard/student_question_card
+
+    Example context (json):
+    {
+        "backurl": "https://example.com/plagiarism/essayguard/report.php?cmid=5",
+        "heading": "Essay Guard — Jane Student",
+        "activityname": "Week 3 essay quiz",
+        "coursename": "Certificate IV in Training and Assessment",
+        "hasdata": true,
+        "nodatanotification": "",
+        "overall": {
+            "level": "medium",
+            "unmeasured": false,
+            "score": 42,
+            "label": "MEDIUM RISK",
+            "barwidth": 42,
+            "lastscored": "Last scored: 7/10/26, 10:15",
+            "legendlow": "LOW",
+            "legendmedium": "MEDIUM",
+            "legendhigh": "HIGH"
+        },
+        "baseline": {
+            "status": "stable",
+            "label": "Stable (12 submissions)",
+            "stable": true,
+            "context": "Compared against this student's own quiz submissions",
+            "hasrows": true,
+            "rows": [
+                {"measurement": "Average WPM", "observed": "88.2", "mean": "41.5", "sd": "6.1", "z": "7.66"}
+            ]
+        },
+        "hasexplanations": true,
+        "explanations": ["Large paste detected (62% of final text)."],
+        "metrics": [
+            {"label": "Total keystrokes", "value": "1204"},
+            {"label": "Paste events", "value": "2"}
+        ],
+        "signaltable": {
+            "hasbreakdown": true,
+            "rows": [
+                {
+                    "num": 1,
+                    "name": "Paste ratio",
+                    "max": 60,
+                    "points": 30,
+                    "fired": true,
+                    "evidence": ["Pasted fraction: 62%"],
+                    "description": "Large fraction of the text arrived by paste."
+                }
+            ],
+            "baselinebonus": false,
+            "lingfallback": false,
+            "finalscore": "42/100",
+            "finallevel": "medium",
+            "precapnote": ""
+        },
+        "hasquestions": false,
+        "questions": []
+    }
+}}
+<div class="eg-student" data-region="plagiarism_essayguard-student">
+    <p class="eg-student-back">
+        <a href="{{backurl}}" class="btn btn-sm btn-secondary">&larr; {{#str}}backtoclassreport, plagiarism_essayguard{{/str}}</a>
+    </p>
+
+    <div class="eg-student-header">
+        <div>
+            <h2 class="eg-student-title">{{heading}}</h2>
+            <p class="eg-student-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
+        </div>
+    </div>
+
+    {{^hasdata}}
+        {{{nodatanotification}}}
+    {{/hasdata}}
+
+    {{#hasdata}}
+        {{#overall}}
+        <div class="eg-student-scorecard eg-student-level-{{level}}">
+            <div class="eg-student-scorebox">
+                <div class="eg-student-bignum">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}</div>
+                <div class="eg-student-outof">{{#str}}student_outof100, plagiarism_essayguard{{/str}}</div>
+            </div>
+            <div class="eg-student-scoremain">
+                <div class="eg-student-risklabel">{{label}}</div>
+                <div class="eg-student-bar">
+                    <div class="eg-student-barfill" style="width: {{barwidth}}%;"></div>
+                </div>
+                <div class="eg-student-meta">{{lastscored}}</div>
+            </div>
+            <div class="eg-student-legend">
+                <span class="eg-student-legend-low">&#9679; {{legendlow}}</span>: {{#str}}student_rangelow, plagiarism_essayguard{{/str}} &nbsp;
+                <span class="eg-student-legend-medium">&#9679; {{legendmedium}}</span>: {{#str}}student_rangemedium, plagiarism_essayguard{{/str}} &nbsp;
+                <span class="eg-student-legend-high">&#9679; {{legendhigh}}</span>: {{#str}}student_rangehigh, plagiarism_essayguard{{/str}}
+            </div>
+        </div>
+        {{/overall}}
+
+        {{#baseline}}
+        <div class="eg-student-baseline eg-student-baseline-{{status}}">
+            <span class="eg-student-baseline-key">{{#str}}baseline_confidence, plagiarism_essayguard{{/str}}:</span>
+            <span class="eg-student-baseline-value">{{label}}</span>
+            {{#stable}}
+                <div class="eg-student-baseline-note">{{context}}</div>
+                {{#hasrows}}
+                <table class="generaltable eg-student-baselinetable">
+                    <tr>
+                        <th scope="col">{{#str}}bl_measurement, plagiarism_essayguard{{/str}}</th>
+                        <th scope="col">{{#str}}bl_thissubmission, plagiarism_essayguard{{/str}}</th>
+                        <th scope="col">{{#str}}bl_theirusual, plagiarism_essayguard{{/str}}</th>
+                        <th scope="col">{{#str}}bl_spread, plagiarism_essayguard{{/str}}</th>
+                        <th scope="col">{{#str}}bl_sd, plagiarism_essayguard{{/str}}</th>
+                    </tr>
+                    {{#rows}}
+                    <tr>
+                        <td>{{measurement}}</td>
+                        <td>{{observed}}</td>
+                        <td>{{mean}}</td>
+                        <td>&plusmn;{{sd}}</td>
+                        <td class="eg-student-z">{{z}}</td>
+                    </tr>
+                    {{/rows}}
+                </table>
+                {{/hasrows}}
+            {{/stable}}
+            {{^stable}}
+                <div class="eg-student-baseline-note">{{#str}}baselinenotenough, plagiarism_essayguard{{/str}}</div>
+            {{/stable}}
+        </div>
+        {{/baseline}}
+
+        {{#hasexplanations}}
+        <h3 class="eg-student-h3">{{#str}}indicatorsheading, plagiarism_essayguard{{/str}}</h3>
+        <ul class="eg-student-indicators">
+            {{#explanations}}
+            <li>{{.}}</li>
+            {{/explanations}}
+        </ul>
+        {{/hasexplanations}}
+
+        <h3 class="eg-student-h3">{{#str}}metricsheading, plagiarism_essayguard{{/str}}</h3>
+        <table class="generaltable eg-student-metrics">
+            <tbody>
+                {{#metrics}}
+                <tr>
+                    <td class="eg-student-metriclabel">{{label}}</td>
+                    <td>{{value}}</td>
+                </tr>
+                {{/metrics}}
+            </tbody>
+        </table>
+
+        <h3 class="eg-student-h3-signals">{{#str}}signalbreakdownheading, plagiarism_essayguard{{/str}}</h3>
+        {{#signaltable}}
+            {{> plagiarism_essayguard/student_signal_table }}
+        {{/signaltable}}
+
+        {{#hasquestions}}
+        <h3 class="eg-student-h3-perq">{{#str}}perquestionheading, plagiarism_essayguard{{/str}}</h3>
+        <p class="eg-student-perqhelp">{{#str}}student_perquestionhelp, plagiarism_essayguard{{/str}}</p>
+        {{#questions}}
+            {{> plagiarism_essayguard/student_question_card }}
+        {{/questions}}
+        {{/hasquestions}}
+
+        <div class="eg-student-guide">
+            <strong>{{#str}}interpretationguide, plagiarism_essayguard{{/str}}</strong>
+            <ul>
+                <li>{{#str}}interpretlow, plagiarism_essayguard{{/str}}</li>
+                <li>{{#str}}interpretmedium, plagiarism_essayguard{{/str}}</li>
+                <li>{{#str}}interprethigh, plagiarism_essayguard{{/str}}</li>
+                <li>{{#str}}interpretnote, plagiarism_essayguard{{/str}}</li>
+            </ul>
+        </div>
+    {{/hasdata}}
+</div>

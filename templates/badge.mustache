@@ -1,0 +1,52 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/badge
+
+    Risk badge shown beside a submission, with links for teachers.
+
+    Context variables required for this template:
+    * state - low, medium, high, unmeasured, pending or error.
+    * label - Badge text.
+    * tooltip - Explanation shown on hover.
+    * isteacher - Whether to show the teacher links.
+    * detailurl - Optional per-student detail page URL.
+    * reporturl - Class report URL (teachers).
+    * errmsg - Optional error detail (teachers).
+
+    Example context (json):
+    {
+        "state": "medium",
+        "label": "Essay Guard Medium · 42%",
+        "tooltip": "Some signals triggered.",
+        "isteacher": true,
+        "detailurl": "https://example.com/plagiarism/essayguard/student.php?cmid=2&userid=3",
+        "reporturl": "https://example.com/plagiarism/essayguard/report.php?cmid=2"
+    }
+}}
+<div class="essayguard-wrap">
+    <span class="essayguard-badge essayguard-badge-{{state}}" data-eg-tip="{{tooltip}}" title="{{tooltip}}">
+        <span class="essayguard-badge-dot essayguard-badge-dot-{{state}}" aria-hidden="true"></span>{{label}}
+    </span>
+    {{#isteacher}}
+        <span class="essayguard-links">
+            {{#detailurl}}<a href="{{detailurl}}" class="essayguard-link">{{#str}}detaillink, plagiarism_essayguard{{/str}}</a>{{/detailurl}}
+            <a href="{{reporturl}}" class="essayguard-link">{{#str}}classreportlink, plagiarism_essayguard{{/str}}</a>
+        </span>
+        {{#errmsg}}<small class="essayguard-errmsg">{{errmsg}}</small>{{/errmsg}}
+    {{/isteacher}}
+</div>

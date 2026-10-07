@@ -69,7 +69,7 @@ require_once(__DIR__ . '/../../lib.php');
  */
 class log_event extends external_api {
     /**
-     * v1.2.219: Hard limits on what one call may carry.
+     * Hard limits on what one call may carry.
      *
      * MAX_EVENTS: the events array used to be an unbounded external_multiple_structure.
      * A student could POST 100,000 events in one call and the server would loop
@@ -129,7 +129,7 @@ class log_event extends external_api {
                 new external_single_structure([
                     'eventname'   => new external_value(PARAM_ALPHAEXT, 'Event name'),
                     'eventtime'   => new external_value(PARAM_INT, 'Client event timestamp'),
-                    'payloadjson' => new external_value(PARAM_RAW, 'JSON payload'), // pipeline-ignore: PARAM_RAW - JSON blob, size-capped at MAX_PAYLOAD_BYTES and json_decode()'d before use; never rendered.
+                    'payloadjson' => new external_value(PARAM_RAW, 'JSON payload'), // pipeline-ignore: PARAM_RAW - JSON blob.
                 ]),
                 'Telemetry events; at most ' . self::MAX_EVENTS . ' per call',
                 VALUE_REQUIRED,
@@ -247,15 +247,8 @@ class log_event extends external_api {
         // in parallel without waiting.
         \core\session\manager::write_close();
 
-        // FIX-EG-ENABLED-CHECK-INCONSISTENT (v1.2.94): get_config() returns PHP false
-        // when the key has never been saved (fresh install). !false = true → this
-        // early-exit fired on fresh installs, causing log_event to return 'ignored: true'
-        // without storing any events in plagiarism_essayguard_ev. The JS queue then
-        // cleared those events thinking they were safely persisted — events were silently
-        // lost, and no score record could ever be produced.
-        // inject_tracker() was corrected in v1.2.88; applying the same fix here.
-        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($globalenabled !== false && empty($globalenabled)) {
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             return self::result($canviewscore, true, 0.0, 'low');
         }
 
@@ -314,6 +307,8 @@ class log_event extends external_api {
         }
         if (!empty($batch)) {
             $DB->insert_records('plagiarism_essayguard_ev', $batch);
+            // New telemetry: any snapshot of this session held by the analyser is stale.
+            analyser::reset_caches();
         }
 
         if (!plagiarism_essayguard_check_unlock()) {
@@ -377,7 +372,7 @@ class log_event extends external_api {
     }
 
     /**
-     * v1.2.219: THE PLUGIN WAS HANDING THE STUDENT A LIVE INTEGRITY ORACLE.
+     * THE PLUGIN WAS HANDING THE STUDENT A LIVE INTEGRITY ORACLE.
      *
      * This method returned riskscore and risklevel to the browser on EVERY 5-second
      * flush. A student could type a sentence, watch the number move, undo, retype it

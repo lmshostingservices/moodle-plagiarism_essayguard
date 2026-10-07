@@ -15,13 +15,10 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Essay Guard — Class Behaviour Analysis Report.
+ * Essay Guard class behaviour analysis report for one activity.
  *
- * DocGuard-quality layout: version badge header, 6 stat cards, clean Submissions
- * table (Score/Risk/Questions/Analysed/Actions), Cross-Student Behaviour Summary.
- *
- * URL: /plagiarism/essayguard/report.php?cmid=X
- * Requires: plagiarism/essayguard:viewreport capability (editingteacher, manager).
+ * Access checks and data retrieval only; presentation lives in
+ * templates/report*.mustache.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
@@ -29,10 +26,9 @@
  */
 
 require_once(__DIR__ . '/../../config.php');
-require_once($CFG->libdir . '/tablelib.php');
 require_once(__DIR__ . '/lib.php');
 
-global $DB, $CFG, $OUTPUT, $PAGE;
+use plagiarism_essayguard\local\service\analyser;
 
 $cmid = required_param('cmid', PARAM_INT);
 
@@ -49,9 +45,8 @@ $PAGE->set_course($course);
 $PAGE->set_cm($cm);
 $PAGE->set_title(get_string('classreport', 'plagiarism_essayguard'));
 $PAGE->set_heading($course->fullname);
-$PAGE->requires->css('/plagiarism/essayguard/styles.css');
 
-/* ── Grading URL ─────────────────────────────────────────────────────────────── */
+// Link back to the activity's grading page.
 if ($cm->modname === 'assign') {
     $gradeurl = new moodle_url('/mod/assign/view.php', ['id' => $cmid, 'action' => 'grading']);
 } else if ($cm->modname === 'quiz') {
@@ -60,39 +55,16 @@ if ($cm->modname === 'assign') {
     $gradeurl = new moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cmid]);
 }
 
-/* ── Group mode restriction ──────────────────────────────────────────────────── */
-// V1.2.219: THIS REPORT IGNORED GROUP MODE ENTIRELY.
-//
-// It listed every student in the activity, by full name and email address, to anyone
-// holding plagiarism/essayguard:viewreport in the module context. On a site using
-// separate groups — every multi-cohort RTO, every faculty sharing one course shell —
-// a tutor assigned to one group could read the names, email addresses and behavioural
-// integrity profiles of every other tutor's students. Moodle's own grading pages honour
-// the group restriction; this report simply did not implement it, so it was a way around
-// the restriction rather than a view of it.
-//
-// groups_get_activity_allowed_groups() returns the groups this user may see, honouring
-// both SEPARATEGROUPS and the moodle/site:accessallgroups override. When the activity is
-// in separate-groups mode and the viewer lacks that capability, the score query is
-// restricted to members of those groups. A viewer in separate-groups mode who belongs to
-// no group sees nothing, which is the same thing the grader report shows them.
-//
-// MIGRATION CONSEQUENCE: on courses using separate groups, teachers who previously saw
-// the whole cohort in this report will now see only their own groups. That is the
-// correction, not a regression; a site that genuinely wants the wider view grants
-// moodle/site:accessallgroups or switches the activity to visible groups.
-$groupmode    = groups_get_activity_groupmode($cm, $course);
-$groupwhere   = '';
-$groupparams  = [];
-$grouprestricted = false;
+// Honour separate groups: without accessallgroups a viewer only sees members of their own groups,
+// and a viewer in no group sees nobody (matching Moodle's grader report).
+$groupmode   = groups_get_activity_groupmode($cm, $course);
+$groupwhere  = '';
+$groupparams = [];
 
 if ($groupmode == SEPARATEGROUPS && !has_capability('moodle/site:accessallgroups', $context)) {
-    $grouprestricted = true;
-    $allowedgroups   = groups_get_activity_allowed_groups($cm);
-    $allowedgroupids = array_keys($allowedgroups);
+    $allowedgroupids = array_keys(groups_get_activity_allowed_groups($cm));
 
     if (empty($allowedgroupids)) {
-        // Viewer is in no group in a separate-groups activity: no students are visible.
         $groupwhere = ' AND 1 = 0';
     } else {
         [$ginsql, $gparams] = $DB->get_in_or_equal($allowedgroupids, SQL_PARAMS_NAMED, 'grp');
@@ -102,19 +74,13 @@ if ($groupmode == SEPARATEGROUPS && !has_capability('moodle/site:accessallgroups
     }
 }
 
-$egidentityfields = explode(',', (string)($CFG->showuseridentity ?? ''));
-$egshowemail = in_array('email', $egidentityfields, true)
+// Email is an identity field: only shown when configured in showuseridentity and the viewer may see identity.
+$identityfields = explode(',', (string)($CFG->showuseridentity ?? ''));
+$showemail = in_array('email', $identityfields, true)
     && has_capability('moodle/site:viewuseridentity', $context);
 
-/* ── Load scores ─────────────────────────────────────────────────────────────── */
-// Load ALL records (aggregate + per-question), group by user, keep most recent per (user, qslot).
-// FIX-EG-REPORT-PERQ (v1.2.69): Per-question rows are kept so teachers see per-Q breakdown.
+// Load aggregate (qslot 0) and per-question rows. The large explanations blob is deliberately not selected.
 $scores = $DB->get_records_sql(
-    // PERF-EG-REPORT-COLUMNS (v1.3.0): sc.* pulled metricsjson AND explanationsjson —
-    // two TEXT blobs of several KB — for every row of every student, aggregate and
-    // per-question, with no pagination. On a 500-student three-essay activity that is
-    // ~2,000 rows of blob hydrated into PHP to render a table. The same fix was applied
-    // to the get_links() preload in v1.2.219 and never carried across to the report.
     "SELECT sc.id, sc.userid, sc.cmid, sc.qslot, sc.attemptkey, sc.riskscore, sc.risklevel,
             sc.metricsjson, sc.timemodified, sc.typing_time, sc.total_keystrokes, sc.paste_events,
             u.firstname, u.lastname, u.email, u.username, u.picture, u.imagealt,
@@ -126,81 +92,45 @@ $scores = $DB->get_records_sql(
     array_merge(['cmid' => $cmid], $groupparams)
 );
 
-// FIX-EG-ONE-TRUTH (v1.2.234): scope each student to a single attempt using the
-// shared rule in lib.php. Previously this page kept the newest row per
-// (userid, qslot) with no attempt filter, so a student with two attempts could
-// be shown Q1 from one attempt beside Q2 from another.
+// Scope each student to a single attempt (shared rule in lib.php), keyed by qslot.
 $rowsbyuser = [];
 foreach ($scores as $sc) {
     $rowsbyuser[(int)$sc->userid][] = $sc;
 }
-$byuser = [];
-foreach ($rowsbyuser as $uid => $userrows) {
-    $byuser[$uid] = plagiarism_essayguard_scope_to_current_attempt($userrows);
-}
 
 $display = [];
-foreach ($byuser as $uid => $records) {
+foreach ($rowsbyuser as $userrows) {
+    $records = plagiarism_essayguard_scope_to_current_attempt($userrows);
     $main = $records[0] ?? null;
     if (!$main) {
         $main = reset($records);
     }
-    $main->_perq = $records;
-    $display[]   = $main;
+    $main->_perq    = $records;
+    $main->_overall = plagiarism_essayguard_overall_score($records);
+    $display[] = $main;
 }
 
-foreach ($display as $sc) {
-    // FIX-EG-ONE-TRUTH (v1.2.234): the overall score now comes from the single
-    // definition in lib.php. This page used to average the per-question scores
-    // while the grading badge used the attempt-level record, so a quiz scoring
-    // 100 and 0 was MEDIUM here and HIGH there from identical data.
-    $sc->_overall = plagiarism_essayguard_overall_score($sc->_perq ?? []);
-}
-
-// Sort: highest risk first, then score desc, then alphabetical.
-// FIX-EG-BADGE-LEVEL (v1.2.71): Re-derive level from score, not stale DB column.
-// FIX-EG-ONE-TRUTH (v1.2.234): sort on the shared overall score.
-usort(
-    $display,
-    function ($a, $b) {
-        $scorea = (int)round($a->_overall * 100);
-        $scoreb = (int)round($b->_overall * 100);
-        $lva    = \plagiarism_essayguard\local\service\analyser::risk_level($scorea);
-        $lvb    = \plagiarism_essayguard\local\service\analyser::risk_level($scoreb);
-        $order   = ['high' => 0, 'medium' => 1, 'low' => 2];
-        $ao = $order[$lva] ?? 2;
-        $bo = $order[$lvb] ?? 2;
-        if ($ao !== $bo) {
+// Sort: highest risk level first, then overall score descending, then by name.
+usort($display, function ($a, $b) {
+    $order = ['high' => 0, 'medium' => 1, 'low' => 2];
+    $ao = $order[analyser::risk_level((int)round($a->_overall * 100))] ?? 2;
+    $bo = $order[analyser::risk_level((int)round($b->_overall * 100))] ?? 2;
+    if ($ao !== $bo) {
         return $ao - $bo;
-        }
-        $sccmp = $b->_overall <=> $a->_overall;
-        if ($sccmp !== 0) {
+    }
+    $sccmp = $b->_overall <=> $a->_overall;
+    if ($sccmp !== 0) {
         return $sccmp;
-        }
-        return strcmp($a->lastname . $a->firstname, $b->lastname . $b->firstname);
-        }
-);
+    }
+    return strcmp($a->lastname . $a->firstname, $b->lastname . $b->firstname);
+});
 
-/* ── Risk config ─────────────────────────────────────────────────────────────── */
-// FIX-EG-BADGE-MEDIUM (v1.2.113): 'medium' key matches analyser::risk_level() output.
-$riskcfg = [
-    'low'    => ['dot' => '#22c55e', 'bg' => '#f0fdf4', 'text' => '#166534', 'border' => '#86efac',
-        'label' => get_string('risklow', 'plagiarism_essayguard')],
-    'medium' => ['dot' => '#f97316', 'bg' => '#fff7ed', 'text' => '#7c2d12', 'border' => '#fdba74',
-        'label' => get_string('riskmedium', 'plagiarism_essayguard')],
-    'high'   => ['dot' => '#ef4444', 'bg' => '#fef2f2', 'text' => '#991b1b', 'border' => '#fca5a5',
-        'label' => get_string('riskhigh', 'plagiarism_essayguard')],
+$risklabels = [
+    'low'    => get_string('risklow', 'plagiarism_essayguard'),
+    'medium' => get_string('riskmedium', 'plagiarism_essayguard'),
+    'high'   => get_string('riskhigh', 'plagiarism_essayguard'),
 ];
 
-// Summary counts use the shared overall rule, never the raw aggregate riskscore.
-$counts = ['low' => 0, 'medium' => 0, 'high' => 0];
-foreach ($display as $sc) {
-    $scpct = (int)round($sc->_overall * 100);
-    $lv     = \plagiarism_essayguard\local\service\analyser::risk_level($scpct);
-    $counts[$lv]++;
-}
-
-/* ── Signal labels (used in Cross-Student section) ───────────────────────────── */
 $siglabels = [
     1  => get_string('siglabel1', 'plagiarism_essayguard'),
     2  => get_string('siglabel2', 'plagiarism_essayguard'),
@@ -211,78 +141,38 @@ $siglabels = [
     13 => get_string('siglabel13', 'plagiarism_essayguard'),
 ];
 
-/* ── Render ──────────────────────────────────────────────────────────────────── */
-echo $OUTPUT->header();
+// Display name for a score row joined to its user.
+$namefor = function (stdClass $sc): string {
+    return fullname((object)[
+        'firstname'         => $sc->firstname,
+        'lastname'          => $sc->lastname,
+        'firstnamephonetic' => $sc->firstnamephonetic ?? '',
+        'lastnamephonetic'  => $sc->lastnamephonetic ?? '',
+        'middlename'        => $sc->middlename ?? '',
+        'alternatename'     => $sc->alternatename ?? '',
+    ]);
+};
 
-/* ── Plugin status banner ────────────────────────────────────────────────────── */
-$egglobalenabled = get_config('plagiarism_essayguard', 'enabled');
-$egpluginenabled = ($egglobalenabled === false) || !empty($egglobalenabled);
-$egcmenabled     = plagiarism_essayguard_is_cm_active($cmid);
-$egunlockok      = plagiarism_essayguard_check_unlock();
+// Status warnings: why the plugin may not be scoring this activity.
+$pluginenabled = plagiarism_essayguard_is_enabled();
+$cmenabled     = plagiarism_essayguard_is_cm_active($cmid);
+$unlockok      = plagiarism_essayguard_check_unlock();
+$status = [
+    'show'           => !$pluginenabled || !$cmenabled || !$unlockok,
+    'globaldisabled' => !$pluginenabled,
+    'cmdisabled'     => $pluginenabled && !$cmenabled,
+    'notunlocked'    => $pluginenabled && !$unlockok,
+    'settingsurl'    => (new moodle_url('/admin/settings.php', ['section' => 'plagiarismsettingessayguard']))->out(false),
+];
 
-if (!$egpluginenabled || !$egcmenabled || !$egunlockok) {
-    $warnparts = [];
-    if (!$egpluginenabled) {
-        $settingsurl = new moodle_url('/admin/settings.php', ['section' => 'plagiarismsettingessayguard']);
-        $warnparts[] = get_string('warnglobaldisabled', 'plagiarism_essayguard')
-            . html_writer::link(
-                $settingsurl,
-                get_string('warnglobaldisabledlink', 'plagiarism_essayguard'),
-                []
-            );
-    }
-    if ($egpluginenabled && !$egcmenabled) {
-        $warnparts[] = get_string('warncmdisabled', 'plagiarism_essayguard');
-    }
-    if ($egpluginenabled && !$egunlockok) {
-        $settingsurl = new moodle_url('/admin/settings.php', ['section' => 'plagiarismsettingessayguard']);
-        $warnparts[] = get_string('warnnotunlocked', 'plagiarism_essayguard')
-            . html_writer::link($settingsurl, get_string('settingslink', 'plagiarism_essayguard'), [])
-            . get_string('warnnotunlockedtail', 'plagiarism_essayguard');
-    }
-    echo '<div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;'
-        . 'padding:0.85rem 1.1rem;margin-bottom:1rem;font-size:0.88rem;color:#7c2d12;">'
-        . '&#x26A0; <strong>' . get_string('notscoring', 'plagiarism_essayguard') . '</strong><br>'
-        . '<ul style="margin:0.4rem 0 0 1.2rem;padding:0;">'
-        . '<li>' . implode('</li><li>', $warnparts) . '</li>'
-        . '</ul></div>';
-}
-
-/* ── Page header banner ──────────────────────────────────────────────────────── */
-echo '<div class="eg-class-header">';
-echo '<div class="eg-class-header-inner">';
-echo '<h2 class="eg-class-title">' . get_string('classreportheading', 'plagiarism_essayguard') . '</h2>';
-echo '<p class="eg-class-meta">';
-// V1.2.219: This badge was hardcoded to '1.2.179' and had been wrong for forty
-// releases — the one place a teacher or a support engineer looks to confirm which build
-// is actually installed was lying to them. Read it from version.php instead so it can
-// never drift again.
-$egplugininfo = \core_plugin_manager::instance()->get_plugin_info('plagiarism_essayguard');
-$egrelease    = $egplugininfo && !empty($egplugininfo->release) ? $egplugininfo->release : '';
-echo '<span class="eg-version-badge">' . s($egrelease) . '</span>';
-echo '&nbsp;&nbsp;' . get_string('essayguard', 'plagiarism_essayguard');
-echo '</p>';
-echo '</div>';
-echo '<a href="' . $gradeurl->out(false) . '" class="eg-back-btn">&#8592; '
-    . get_string('backtograding', 'plagiarism_essayguard') . '</a>';
-echo '</div>';
-
-// Activity + course subtitle.
-echo '<p class="eg-class-subtitle">' . s($cm->name) . ' &nbsp;|&nbsp; ' . s($course->fullname) . '</p>';
-
-/* ── Stat cards ──────────────────────────────────────────────────────────────── */
-// FIX-EG-HONEST-STAT-CARDS (v1.3.0): "Pending" and "Errors" were hardcoded to 0 and
-// rendered regardless of the data, so two of the six headline numbers on the class
-// report were decorative. A teacher reading "Errors: 0" was being told something the
-// plugin had never computed, and an activity where the tracker failed for a third of
-// the cohort rendered a clean, confident, entirely green report.
-//
-// "Not assessed" is now a real count, and it is the number an auditor asking "how do
-// you know you checked everyone?" actually needs.
+// Stat cards. A student is "not assessed" when none of their records captured any typing activity.
+$counts = ['low' => 0, 'medium' => 0, 'high' => 0];
 $notassessed = 0;
 foreach ($display as $sc) {
+    $counts[analyser::risk_level((int)round($sc->_overall * 100))]++;
+
     $hasmeasured = false;
-    foreach (($sc->_perq ?? []) as $slot => $r) {
+    foreach ($sc->_perq as $r) {
         if (!plagiarism_essayguard_is_unmeasured($r)) {
             $hasmeasured = true;
             break;
@@ -294,263 +184,120 @@ foreach ($display as $sc) {
 }
 
 $statcards = [
-    [get_string('stattotal', 'plagiarism_essayguard'), count($display), '#1e3a5f', '#fff'],
-    [get_string('stathigh', 'plagiarism_essayguard'), $counts['high'], '#b71c1c', '#fff'],
-    [get_string('statmedium', 'plagiarism_essayguard'), $counts['medium'], '#e65100', '#fff'],
-    [get_string('statlow', 'plagiarism_essayguard'), $counts['low'], '#2e7d32', '#fff'],
-    [get_string('statnotassessed', 'plagiarism_essayguard'), $notassessed, '#555555', '#fff'],
+    ['variant' => 'total', 'label' => get_string('stattotal', 'plagiarism_essayguard'), 'value' => count($display)],
+    ['variant' => 'high', 'label' => get_string('stathigh', 'plagiarism_essayguard'), 'value' => $counts['high']],
+    ['variant' => 'medium', 'label' => get_string('statmedium', 'plagiarism_essayguard'), 'value' => $counts['medium']],
+    ['variant' => 'low', 'label' => get_string('statlow', 'plagiarism_essayguard'), 'value' => $counts['low']],
+    ['variant' => 'notassessed', 'label' => get_string('statnotassessed', 'plagiarism_essayguard'), 'value' => $notassessed],
 ];
-echo '<div class="eg-stat-cards">';
-foreach ($statcards as [$label, $val, $bg, $fg]) {
-    echo '<div class="eg-stat-card" style="background:' . $bg . ';color:' . $fg . ';">'
-       . '<div class="eg-stat-num">' . (int)$val . '</div>'
-       . '<div class="eg-stat-label">' . s($label) . '</div>'
-       . '</div>';
-}
-echo '</div>';
 
-/* ── Empty state ─────────────────────────────────────────────────────────────── */
-if (empty($display)) {
-    echo '<div class="essayguard-empty">';
-    echo '<p style="margin:0 0 0.5rem;">' . get_string('emptystate', 'plagiarism_essayguard') . '</p>';
-    if ($cm->modname === 'quiz') {
-        $rescoreurl = new moodle_url('/plagiarism/essayguard/rescore.php', ['cmid' => $cmid]);
-        echo '<div style="margin-top:0.75rem;padding:0.75rem 1rem;background:#f5f3ff;'
-           . 'border:1px solid #c4b5fd;border-radius:6px;font-size:0.88rem;color:#4c1d95;">'
-           . '<strong>' . get_string('rescoreprompt', 'plagiarism_essayguard') . '</strong> '
-           . get_string('useword', 'plagiarism_essayguard')
-           . html_writer::link(
-               $rescoreurl,
-               get_string('rescoretoollink', 'plagiarism_essayguard'),
-               ['style' => 'color:#6c3483;font-weight:600;']
-           )
-           . get_string('rescoreprompttail', 'plagiarism_essayguard')
-           . '</div>';
-    }
-    echo '</div>';
-    echo $OUTPUT->footer();
-    exit;
-}
-
-/* ── Submissions table ───────────────────────────────────────────────────────── */
-echo '<h4 class="eg-section-heading">' . get_string('submissionsheading', 'plagiarism_essayguard') . '</h4>';
-
-echo '<table class="generaltable eg-class-table">';
-echo '<thead><tr>'
-   . '<th>' . get_string('colstudent', 'plagiarism_essayguard') . '</th>'
-   . '<th>' . get_string('colscore', 'plagiarism_essayguard') . '</th>'
-   . '<th>' . get_string('colrisk', 'plagiarism_essayguard') . '</th>'
-   . '<th>' . get_string('colquestions', 'plagiarism_essayguard') . '</th>'
-   . '<th>' . get_string('colanalysed', 'plagiarism_essayguard') . '</th>'
-   . '<th>' . get_string('colactions', 'plagiarism_essayguard') . '</th>'
-   . '</tr></thead>';
-echo '<tbody>';
+// Submissions table rows, each with its per-question breakdown.
+$rows = [];
+$highrisk = [];
+$analysedformat = get_string('report_strftimeanalysed', 'plagiarism_essayguard');
 
 foreach ($display as $sc) {
-    // FIX-EG-BADGE-LEVEL (v1.2.71): Derive level from score, not stale DB column.
-    // FIX-EG-REPORT-AVG (v1.2.208): Use computed mean of per-question scores.
-    $score = (int)round($sc->_overall * 100);
-    $level = \plagiarism_essayguard\local\service\analyser::risk_level($score);
-    $c     = $riskcfg[$level] ?? $riskcfg['low'];
+    $score     = (int)round($sc->_overall * 100);
+    $level     = analyser::risk_level($score);
+    $risklabel = core_text::strtoupper($risklabels[$level] ?? $risklabels['low']);
+    $fullname  = $namefor($sc);
+    $detailurl = (new moodle_url('/plagiarism/essayguard/student.php', ['cmid' => $cmid, 'userid' => $sc->userid]))->out(false);
 
-    // Count distinct per-question slots (slot > 0).
     $perqcount = 0;
-    if (!empty($sc->_perq)) {
-        foreach ($sc->_perq as $slot => $r) {
-            if ((int)$slot > 0) {
-                $perqcount++;
-            }
+    foreach (array_keys($sc->_perq) as $slot) {
+        if ((int)$slot > 0) {
+            $perqcount++;
         }
     }
-    $qcountdisplay = $perqcount > 0 ? $perqcount : 1;
 
-    // URLs.
-    $profileurl = new moodle_url('/user/view.php', ['id' => $sc->userid, 'course' => $course->id]);
-    $detailurl  = new moodle_url('/plagiarism/essayguard/student.php', ['cmid' => $cmid, 'userid' => $sc->userid]);
-
-    // Full name.
-    $fn = fullname(
-        (object)[
-            'firstname'         => $sc->firstname,
-            'lastname'          => $sc->lastname,
-            'firstnamephonetic' => $sc->firstnamephonetic ?? '',
-            'lastnamephonetic'  => $sc->lastnamephonetic ?? '',
-            'middlename'        => $sc->middlename ?? '',
-            'alternatename'     => $sc->alternatename ?? '',
-            ]
-    );
-
-    // Score badge: "65/100  HIGH" with colored background.
-    $scorehtml = '<span class="eg-score-badge eg-score-badge-' . s($level) . '">'
-                . $score . '/100 &nbsp;&nbsp;' . strtoupper($c['label'])
-                . '</span>';
-
-    // Risk badge (separate column).
-    $riskhtml = '<span class="essayguard-badge essayguard-badge-' . s($level) . '">'
-               . strtoupper($c['label'])
-               . '</span>';
-
-    // Analysed timestamp.
-    $analysed = $sc->timemodified ? userdate((int)$sc->timemodified, '%d %b %Y %H:%M') : '—';
-
-    // Action button.
-    $actionhtml = '<a href="' . $detailurl->out(false) . '" class="eg-action-btn">'
-                 . get_string('viewreport', 'plagiarism_essayguard') . '</a>';
-
-    $rowclass = ($level === 'high') ? 'essayguard-row-high' : '';
-    echo '<tr' . ($rowclass ? ' class="' . $rowclass . '"' : '') . '>';
-    echo '<td>'
-       . '<a href="' . $profileurl->out(false) . '" class="eg-student-name">' . s($fn) . '</a>'
-       // SEC-EG-IDENTITY (v1.3.0): email is an identity field. Moodle gates these on
-       // $CFG->showuseridentity plus moodle/site:viewuseridentity; this table printed it
-       // for every scored student unconditionally, widening what a tutor-level
-       // :viewreport grant discloses. fullname() already identifies the student.
-       . ($egshowemail
-            ? '<br><small class="eg-student-email">' . s($sc->email ?? '') . '</small>'
-            : '')
-       . '</td>';
-    echo '<td>' . $scorehtml . '</td>';
-    echo '<td>' . $riskhtml . '</td>';
-    echo '<td class="eg-center">' . $qcountdisplay . '</td>';
-    echo '<td class="eg-ts">' . $analysed . '</td>';
-    echo '<td>' . $actionhtml . '</td>';
-    echo '</tr>';
-
-    /* ── Per-question breakdown rows ─────────────────────────────────────────── */
-    // FIX-EG-REPORT-PERQ (v1.2.69): Indented breakdown rows for quiz per-question slots.
-    if (!empty($sc->_perq)) {
-        $perq = $sc->_perq;
-        ksort($perq);
-
-        // FIX-EG-REPORT-FALLBACK (v1.2.108): Mirror lib.php fallback rule for consistency.
-        $agg = $perq[0] ?? null;
-        foreach ($perq as $slot => $r) {
-            if ((int)$slot === 0) {
-                continue;
-            }
-
-            // FIX-EG-FALLBACK-PASTE-ONLY (v1.2.110) + FIX-EG-REPORT-PASTE-SIGNAL1 (v1.2.160).
-            // FIX-EG-ONE-TRUTH (v1.2.234): shared rule, same call as lib.php.
-            $isaggregatefallback = false;
-            $r = plagiarism_essayguard_resolve_question_record($r, $agg, $isaggregatefallback);
-
-            // FIX-EG-BADGE-LEVEL (v1.2.71): Derive from score, not DB column.
-            $qscore  = isset($r->riskscore) ? (int)round((float)$r->riskscore * 100) : 0;
-            $qlevel  = \plagiarism_essayguard\local\service\analyser::risk_level($qscore);
-            $qc      = $riskcfg[$qlevel] ?? $riskcfg['low'];
-            $qlabel  = strtoupper($qc['label'])
-                . ($isaggregatefallback ? get_string('overallsuffix', 'plagiarism_essayguard') : '');
-
-            // FIX-EG-NO-DATA-IS-NOT-LOW (v1.2.234): never badge an unassessed
-            // question as LOW. See plagiarism_essayguard_is_unmeasured().
-            $qunmeasured = plagiarism_essayguard_is_unmeasured($r);
-            if ($qunmeasured) {
-                // FIX-EG-STALE-QC (v1.3.0): $qc was captured above and never recomputed,
-                // so the Score column read "0/100 NO DATA" while the Risk column beside
-                // it still read "LOW" — the fix defeated by a stale variable one line up.
-                $qlevel = 'nodata';
-                $qlabel = get_string('nodatabadge', 'plagiarism_essayguard');
-                $qc     = [
-                    'bg'    => '#f3f4f6',
-                    'text'  => '#4b5563',
-                    'bar'   => '#9ca3af',
-                    'label' => $qlabel,
-                    ];
-            }
-
-            $qscorehtml = '<span class="eg-score-badge eg-score-badge-' . s($qlevel) . '" style="font-size:0.8rem;">'
-                         . ($qunmeasured ? '&mdash;/100' : $qscore . '/100') . ' &nbsp;&nbsp;' . $qlabel
-                         . '</span>';
-            $qriskhtml  = '<span class="essayguard-badge essayguard-badge-' . s($qlevel) . '">'
-                         . strtoupper($qc['label'])
-                         . '</span>';
-
-            echo '<tr class="eg-perq-row">';
-            echo '<td class="eg-perq-label">&#x21B3; '
-                . get_string('questionlabel', 'plagiarism_essayguard', (int)$slot) . '</td>';
-            echo '<td>' . $qscorehtml . '</td>';
-            echo '<td>' . $qriskhtml . '</td>';
-            echo '<td class="eg-center eg-muted">—</td>';
-            echo '<td class="eg-ts eg-muted">—</td>';
-            echo '<td></td>';
-            echo '</tr>';
+    $questions = [];
+    $perq = $sc->_perq;
+    ksort($perq);
+    $agg = $perq[0] ?? null;
+    foreach ($perq as $slot => $r) {
+        if ((int)$slot === 0) {
+            continue;
         }
+
+        $isaggregatefallback = false;
+        $r = plagiarism_essayguard_resolve_question_record($r, $agg, $isaggregatefallback);
+
+        $qscore  = isset($r->riskscore) ? (int)round((float)$r->riskscore * 100) : 0;
+        $qlevel  = analyser::risk_level($qscore);
+        $qrisk   = core_text::strtoupper($risklabels[$qlevel] ?? $risklabels['low']);
+        $qlabel  = $qrisk . ($isaggregatefallback ? get_string('overallsuffix', 'plagiarism_essayguard') : '');
+
+        // Never badge an unassessed question as LOW.
+        $qunmeasured = plagiarism_essayguard_is_unmeasured($r);
+        if ($qunmeasured) {
+            $qlevel = 'nodata';
+            $qlabel = core_text::strtoupper(get_string('nodatabadge', 'plagiarism_essayguard'));
+            $qrisk  = core_text::strtoupper($qlabel);
+        }
+
+        $questions[] = [
+            'label'      => get_string('questionlabel', 'plagiarism_essayguard', (int)$slot),
+            'level'      => $qlevel,
+            'score'      => $qscore,
+            'unmeasured' => $qunmeasured,
+            'scorelabel' => $qlabel,
+            'risklabel'  => $qrisk,
+        ];
     }
-}
 
-echo '</tbody></table>';
+    $rows[] = [
+        'fullname'   => $fullname,
+        'profileurl' => (new moodle_url('/user/view.php', ['id' => $sc->userid, 'course' => $course->id]))->out(false),
+        'showemail'  => $showemail,
+        'email'      => $sc->email ?? '',
+        'level'      => $level,
+        'ishigh'     => $level === 'high',
+        'score'      => $score,
+        'risklabel'  => $risklabel,
+        'qcount'     => $perqcount > 0 ? $perqcount : 1,
+        'analysed'   => $sc->timemodified ? userdate((int)$sc->timemodified, $analysedformat) : '—',
+        'detailurl'  => $detailurl,
+        'questions'  => $questions,
+    ];
 
-/* ── Cross-Student Behaviour Summary ─────────────────────────────────────────── */
-echo '<h4 class="eg-section-heading" style="margin-top:2rem;">'
-   . get_string('crossheading', 'plagiarism_essayguard') . '</h4>';
-echo '<p class="eg-similarity-note">' . get_string('crossnote', 'plagiarism_essayguard') . '</p>';
-
-$highrisk = array_filter(
-    $display,
-    function ($sc) {
-        $s = (int)round($sc->_overall * 100);
-        return \plagiarism_essayguard\local\service\analyser::risk_level($s) === 'high';
-        }
-);
-
-if (empty($highrisk)) {
-    echo '<p class="eg-no-similarity">' . get_string('nohighrisk', 'plagiarism_essayguard') . '</p>';
-} else {
-    echo '<table class="generaltable eg-similarity-table">';
-    echo '<thead><tr>'
-       . '<th>' . get_string('colstudent', 'plagiarism_essayguard') . '</th>'
-       . '<th>' . get_string('colscore', 'plagiarism_essayguard') . '</th>'
-       . '<th>' . get_string('colprimarysignal', 'plagiarism_essayguard') . '</th>'
-       . '<th>' . get_string('colactions', 'plagiarism_essayguard') . '</th>'
-       . '</tr></thead><tbody>';
-
-    foreach ($highrisk as $sc) {
-        $s  = (int)round($sc->_overall * 100);
-        $fn = fullname(
-            (object)[
-                'firstname'         => $sc->firstname,
-                'lastname'          => $sc->lastname,
-                'firstnamephonetic' => $sc->firstnamephonetic ?? '',
-                'lastnamephonetic'  => $sc->lastnamephonetic ?? '',
-                'middlename'        => $sc->middlename ?? '',
-                'alternatename'     => $sc->alternatename ?? '',
-                ]
-        );
-
-        // Identify the top-scoring signal from metricsjson.
+    if ($level === 'high') {
+        // Primary signal: the highest-scoring entry in the aggregate signal breakdown.
         $metrics = !empty($sc->metricsjson) ? (json_decode($sc->metricsjson, true) ?: []) : [];
-        $sigbd  = $metrics['signal_breakdown'] ?? [];
-        $topsig = '—';
+        $sigbd   = $metrics['signal_breakdown'] ?? [];
+        $topsig  = '—';
         if (!empty($sigbd)) {
             arsort($sigbd);
             $topk   = array_key_first($sigbd);
-            $topsig = $siglabels[(int)$topk]
-                ?? get_string('signalnumber', 'plagiarism_essayguard', $topk);
+            $topsig = $siglabels[(int)$topk] ?? get_string('signalnumber', 'plagiarism_essayguard', $topk);
         }
 
-        $durl = new moodle_url('/plagiarism/essayguard/student.php', ['cmid' => $cmid, 'userid' => $sc->userid]);
-        echo '<tr>';
-        echo '<td class="eg-student-name-plain">' . s($fn) . '</td>';
-        echo '<td><span class="eg-score-badge eg-score-badge-high">' . $s . '/100 &nbsp;&nbsp;'
-            . strtoupper(get_string('riskhigh', 'plagiarism_essayguard')) . '</span></td>';
-        echo '<td class="eg-signal-label">' . s($topsig) . '</td>';
-        echo '<td><a href="' . $durl->out(false) . '" class="eg-action-btn">'
-            . get_string('viewreport', 'plagiarism_essayguard') . '</a></td>';
-        echo '</tr>';
+        $highrisk[] = [
+            'fullname'  => $fullname,
+            'score'     => $score,
+            'risklabel' => core_text::strtoupper($risklabels['high']),
+            'signal'    => $topsig,
+            'detailurl' => $detailurl,
+        ];
     }
-
-    echo '</tbody></table>';
 }
 
-// V1.2.219: DIAGNOSTIC PAGES REMOVED FROM THE RELEASE.
-//
-// This bar linked to debug.php, diag.php and badge_diag.php. Those three, plus
-// attempt_diag.php, report_match_diag.php and capture_test.php, were ~5,400 lines —
-// about a third of the codebase — of internal troubleshooting scaffolding: raw event
-// dumps, signal-by-signal threshold traces, and a description of exactly which
-// behaviours trip which detector. Their access control was correct, but a client
-// release should not ship a third of its code as developer tooling, and the badge
-// diagnostic in particular documented the detection heuristics in plain English on a
-// page reachable from the teacher UI. All six files are deleted; this bar goes with them.
+$plugininfo = \core_plugin_manager::instance()->get_plugin_info('plagiarism_essayguard');
 
+$templatedata = [
+    'gradeurl'     => $gradeurl->out(false),
+    'release'      => ($plugininfo && !empty($plugininfo->release)) ? $plugininfo->release : '',
+    'activityname' => $cm->name,
+    'coursename'   => $course->fullname,
+    'status'       => $status,
+    'statcards'    => $statcards,
+    'hasrows'      => !empty($rows),
+    'rows'         => $rows,
+    'isquiz'       => $cm->modname === 'quiz',
+    'rescoreurl'   => (new moodle_url('/plagiarism/essayguard/rescore.php', ['cmid' => $cmid]))->out(false),
+    'hashighrisk'  => !empty($highrisk),
+    'highrisk'     => $highrisk,
+];
+
+echo $OUTPUT->header();
+echo $OUTPUT->render_from_template('plagiarism_essayguard/report', $templatedata);
 echo $OUTPUT->footer();

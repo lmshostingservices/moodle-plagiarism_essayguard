@@ -1,0 +1,113 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/report_submissions
+
+    Submissions table: one row per student with an indented row per scored question.
+
+    Classes required for JS:
+    * none
+
+    Data attributes required for JS:
+    * none
+
+    Context variables required for this template:
+    * rows - Array of student rows, each with:
+        * fullname - Student display name.
+        * profileurl - URL of the student's course profile.
+        * showemail - Whether the email identity field may be shown.
+        * email - Student email address.
+        * level - Risk level key (low, medium, high).
+        * ishigh - Whether the row is high risk (row highlight).
+        * score - Overall score 0-100.
+        * risklabel - Upper-case risk label.
+        * qcount - Number of questions scored.
+        * analysed - Formatted time of the last analysis.
+        * detailurl - URL of the student report.
+        * questions - Array of per-question rows, each with:
+            * label - Question label.
+            * level - Risk level key (low, medium, high, nodata).
+            * score - Question score 0-100.
+            * unmeasured - Whether no typing activity was captured.
+            * scorelabel - Label shown in the score badge.
+            * risklabel - Upper-case label shown in the risk badge.
+
+    Example context (json):
+    {
+        "rows": [
+            {
+                "fullname": "Ann Smith",
+                "profileurl": "https://example.com/user/view.php?id=3&course=2",
+                "showemail": true,
+                "email": "ann@example.com",
+                "level": "high",
+                "ishigh": true,
+                "score": 72,
+                "risklabel": "HIGH",
+                "qcount": 2,
+                "analysed": "07 Oct 2026 10:15",
+                "detailurl": "https://example.com/plagiarism/essayguard/student.php?cmid=5&userid=3",
+                "questions": [
+                    {"label": "Question 1", "level": "high", "score": 72, "unmeasured": false,
+                        "scorelabel": "HIGH", "risklabel": "HIGH"},
+                    {"label": "Question 2", "level": "nodata", "score": 0, "unmeasured": true,
+                        "scorelabel": "NO DATA", "risklabel": "NO DATA"}
+                ]
+            }
+        ]
+    }
+}}
+<h4 class="eg-section-heading">{{#str}}submissionsheading, plagiarism_essayguard{{/str}}</h4>
+<table class="generaltable eg-class-table">
+    <thead>
+        <tr>
+            <th scope="col">{{#str}}colstudent, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colscore, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colrisk, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colquestions, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colanalysed, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colactions, plagiarism_essayguard{{/str}}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#rows}}
+        <tr{{#ishigh}} class="essayguard-row-high"{{/ishigh}}>
+            <td>
+                <a href="{{profileurl}}" class="eg-student-name">{{fullname}}</a>
+                {{#showemail}}<br><small class="eg-student-email">{{email}}</small>{{/showemail}}
+            </td>
+            <td><span class="eg-score-badge eg-score-badge-{{level}}">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
+            <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
+            <td class="eg-center">{{qcount}}</td>
+            <td class="eg-ts">{{analysed}}</td>
+            <td><a href="{{detailurl}}" class="eg-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
+        </tr>
+        {{#questions}}
+        <tr class="eg-perq-row">
+            <td class="eg-perq-label"><span aria-hidden="true">&#x21B3;</span> {{label}}</td>
+            <td>
+                <span class="eg-score-badge eg-score-badge-sm eg-score-badge-{{level}}">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}/100 &nbsp;&nbsp;{{scorelabel}}</span>
+            </td>
+            <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
+            <td class="eg-center eg-muted">&mdash;</td>
+            <td class="eg-ts eg-muted">&mdash;</td>
+            <td></td>
+        </tr>
+        {{/questions}}
+        {{/rows}}
+    </tbody>
+</table>

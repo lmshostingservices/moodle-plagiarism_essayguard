@@ -35,12 +35,18 @@ final class linguistic_test extends \advanced_testcase {
     /**
      * Text shorter than the twenty-character floor is not analysed at all.
      *
+     * Since v1.4.0 the zeroed set also carries the paragraph and transition metrics
+     * (CLAIM-EG-PARAGRAPH, CLAIM-EG-TRANSITION), in the order empty_metrics() builds it.
+     *
      * @dataProvider short_text_provider
      * @param string $text The submitted text.
      * @return void
      */
     public function test_analyse_returns_zeroed_metrics_below_the_floor(string $text): void {
         $this->assertSame([
+            'paragraph_count'     => 0,
+            'paragraph_variance'  => 0.0,
+            'transition_density'  => 0.0,
             'sentence_variance'   => 0.0,
             'avg_sentence_length' => 0.0,
             'sentence_count'      => 0,
@@ -52,8 +58,8 @@ final class linguistic_test extends \advanced_testcase {
     /**
      * Texts at or below the analysis floor.
      *
-     * The floor is strlen() of the trimmed text, so it counts bytes rather than
-     * characters -- see test_non_latin_text_is_admitted_but_yields_no_signal.
+     * The floor is core_text::strlen() of the trimmed text, so it counts characters
+     * (bytes before v1.2.224) -- see test_non_latin_text_is_admitted_but_yields_no_signal.
      *
      * @return array[] Each dataset: the text.
      */
@@ -68,6 +74,11 @@ final class linguistic_test extends \advanced_testcase {
 
     /**
      * analyse() reports the metric set observed for each shape of answer.
+     *
+     * v1.4.0 added paragraph_count, paragraph_variance and transition_density. None of
+     * these answers is long enough for either to register: a paragraph of three words or
+     * fewer is dropped, and transition density is 0.0 below 40 words by design, which is
+     * why the marker-heavy "formal register" answer still reports 0.0.
      *
      * @dataProvider analyse_provider
      * @param string $text     The submitted text.
@@ -93,6 +104,9 @@ final class linguistic_test extends \advanced_testcase {
                     'sentence_count'      => 1,
                     'vocab_diversity'     => 1.0,
                     'rare_word_ratio'     => 0.3333,
+                    'paragraph_count'     => 0,
+                    'paragraph_variance'  => 0.0,
+                    'transition_density'  => 0.0,
                 ],
             ],
             'four sentences of equal length' => [
@@ -104,6 +118,9 @@ final class linguistic_test extends \advanced_testcase {
                     'sentence_count'      => 4,
                     'vocab_diversity'     => 0.6667,
                     'rare_word_ratio'     => 0.0,
+                    'paragraph_count'     => 1,
+                    'paragraph_variance'  => 0.0,
+                    'transition_density'  => 0.0,
                 ],
             ],
             'wildly varied sentence lengths' => [
@@ -115,6 +132,9 @@ final class linguistic_test extends \advanced_testcase {
                     'sentence_count'      => 3,
                     'vocab_diversity'     => 0.8636,
                     'rare_word_ratio'     => 0.0455,
+                    'paragraph_count'     => 1,
+                    'paragraph_variance'  => 0.0,
+                    'transition_density'  => 0.0,
                 ],
             ],
             'one long unpunctuated sentence' => [
@@ -126,6 +146,9 @@ final class linguistic_test extends \advanced_testcase {
                     'sentence_count'      => 1,
                     'vocab_diversity'     => 1.0,
                     'rare_word_ratio'     => 0.1667,
+                    'paragraph_count'     => 1,
+                    'paragraph_variance'  => 0.0,
+                    'transition_density'  => 0.0,
                 ],
             ],
             'formal register, long words' => [
@@ -137,6 +160,9 @@ final class linguistic_test extends \advanced_testcase {
                     'sentence_count'      => 2,
                     'vocab_diversity'     => 0.9167,
                     'rare_word_ratio'     => 0.8333,
+                    'paragraph_count'     => 1,
+                    'paragraph_variance'  => 0.0,
+                    'transition_density'  => 0.0,
                 ],
             ],
         ];
@@ -281,15 +307,14 @@ final class linguistic_test extends \advanced_testcase {
     }
 
     /**
-     * Recorded behaviour, not endorsed behaviour: the twenty-character floor counts
-     * bytes, and the word regexes are not Unicode-aware.
+     * The twenty-character floor counts characters, not bytes.
      *
-     * A ten-character CJK answer is thirty bytes, so it clears the floor and is
-     * analysed -- but /\b\w+\b/ and /\b[a-z]+\b/i match nothing in it, so every
-     * metric comes back zero and sentence_count is 0. The analyser's linguistic
-     * fallback gates on sentence_count >= 1, so a non-Latin answer contributes no
-     * linguistic evidence whatsoever. This test pins the behaviour so that a fix
-     * (adding the /u modifier) is a deliberate, visible change.
+     * Before v1.2.224 (FIX-EG-LINGUISTIC-NOT-UNICODE) the floor was strlen(), so a
+     * ten-character CJK answer -- thirty bytes -- was admitted, matched no word at all
+     * and came back zeroed. The test name records that old behaviour. The floor now
+     * uses core_text::strlen(), so the same answer is below it and returns the zeroed
+     * set for the right reason: it is ten characters long. Longer CJK text is analysed
+     * properly; see test_cjk_text_produces_real_metrics().
      *
      * @return void
      */
@@ -298,6 +323,9 @@ final class linguistic_test extends \advanced_testcase {
         $this->assertSame(10, \core_text::strlen($cjk));
         $this->assertSame(30, strlen($cjk));
         $this->assertSame([
+            'paragraph_count'     => 0,
+            'paragraph_variance'  => 0.0,
+            'transition_density'  => 0.0,
             'sentence_variance'   => 0.0,
             'avg_sentence_length' => 0.0,
             'sentence_count'      => 0,

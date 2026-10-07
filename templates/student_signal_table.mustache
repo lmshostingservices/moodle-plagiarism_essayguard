@@ -1,0 +1,159 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/student_signal_table
+
+    Per-signal breakdown table for one score record (attempt-level or per-question),
+    with a collapsible status key, supplementary-factor rows and the capped total.
+
+    Context variables required for this template:
+    * hasbreakdown - bool false for records written before signal breakdowns were stored
+    * rows - array of {num, name, max, points, fired, evidence (string[]), description}
+    * baselinebonus - false or {points, deviation}
+    * lingfallback - false or {points}
+    * finalscore - string formatted final score, e.g. "42/100"
+    * finallevel - string low|medium|high
+    * precapnote - string pre-cap total note, empty when the cap did not apply
+
+    Example context (json):
+    {
+        "hasbreakdown": true,
+        "rows": [
+            {
+                "num": 1,
+                "name": "Paste ratio",
+                "max": 60,
+                "points": 30,
+                "fired": true,
+                "evidence": ["Pasted fraction: 62%", "Paste events: 2"],
+                "description": "Large fraction of the text arrived by paste."
+            },
+            {
+                "num": 2,
+                "name": "Keystroke count",
+                "max": 10,
+                "points": 0,
+                "fired": false,
+                "evidence": [],
+                "description": "Too few keystrokes for the length of text."
+            }
+        ],
+        "baselinebonus": {"points": 9, "deviation": "Deviation score: 0.612"},
+        "lingfallback": {"points": 12},
+        "finalscore": "45/100",
+        "finallevel": "medium",
+        "precapnote": "Pre-cap total: 51"
+    }
+}}
+{{#hasbreakdown}}
+<p class="eg-student-signalnote">{{#str}}signalbreakdownnote, plagiarism_essayguard{{/str}}</p>
+
+<details class="eg-student-statuskey">
+    <summary>&#9432;&nbsp;{{#str}}statuskey, plagiarism_essayguard{{/str}}</summary>
+    <div class="eg-student-statuskey-body">
+        <div class="eg-student-statuskey-item">
+            <span class="eg-student-statuskey-term eg-student-statuskey-term-fired">&#9679;&nbsp;{{#str}}statusfired, plagiarism_essayguard{{/str}}</span>
+            <span class="eg-student-statuskey-desc">{{#str}}statusfireddesc, plagiarism_essayguard{{/str}}</span>
+        </div>
+        <div class="eg-student-statuskey-item">
+            <span class="eg-student-statuskey-term eg-student-statuskey-term-silent">&#9711;&nbsp;{{#str}}statussilent, plagiarism_essayguard{{/str}}</span>
+            <span class="eg-student-statuskey-desc">{{#str}}statussilentdesc, plagiarism_essayguard{{/str}}</span>
+        </div>
+        <div class="eg-student-statuskey-item">
+            <span class="eg-student-statuskey-term eg-student-statuskey-term-applied">{{#str}}statusapplied, plagiarism_essayguard{{/str}}</span>
+            <span class="eg-student-statuskey-desc">{{#str}}statusapplieddesc, plagiarism_essayguard{{/str}}</span>
+        </div>
+    </div>
+</details>
+
+<table class="generaltable eg-student-signals">
+    <thead>
+        <tr>
+            <th scope="col">{{#str}}colnum, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colsignal, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colmax, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colpts, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colstatus, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}colevidence, plagiarism_essayguard{{/str}}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#rows}}
+        <tr{{#fired}} class="eg-student-fired"{{/fired}}>
+            <td class="eg-student-signum">{{num}}</td>
+            <td{{#fired}} class="eg-student-signame-fired"{{/fired}}>{{name}}</td>
+            <td class="eg-student-sigmax">{{max}}</td>
+            <td>
+                {{#fired}}<span class="eg-student-pts">+{{points}}</span>{{/fired}}
+                {{^fired}}<span class="eg-student-pts-zero">0</span>{{/fired}}
+            </td>
+            <td>
+                {{#fired}}
+                <span class="eg-student-statuspill" title="{{#cleanstr}}statusfiredtitle, plagiarism_essayguard{{/cleanstr}}">&#9679; {{#str}}statusfired, plagiarism_essayguard{{/str}}</span>
+                {{/fired}}
+                {{^fired}}
+                <span class="eg-student-status-silent" title="{{#cleanstr}}statussilenttitle, plagiarism_essayguard{{/cleanstr}}">&#9711; {{#str}}statussilent, plagiarism_essayguard{{/str}}</span>
+                {{/fired}}
+            </td>
+            <td class="eg-student-evidence">
+                {{#evidence}}
+                <div>{{.}}</div>
+                {{/evidence}}
+                <div class="eg-student-sigdesc">{{description}}</div>
+            </td>
+        </tr>
+        {{/rows}}
+
+        {{#baselinebonus}}
+        <tr class="eg-student-extra">
+            <td class="eg-student-signum">&mdash;</td>
+            <td class="eg-student-signame-fired"><em>{{#str}}baselinebonusname, plagiarism_essayguard{{/str}}</em></td>
+            <td class="eg-student-sigmax">15</td>
+            <td><span class="eg-student-pts">+{{points}}</span></td>
+            <td><span class="eg-student-statuspill" title="{{#cleanstr}}appliedtitle, plagiarism_essayguard{{/cleanstr}}">{{#str}}statusapplied, plagiarism_essayguard{{/str}}</span></td>
+            <td class="eg-student-evidence">
+                <div class="eg-student-extradesc">{{#str}}baselinebonusdesc, plagiarism_essayguard{{/str}}</div>
+                <div class="eg-student-sigdesc">{{deviation}}</div>
+            </td>
+        </tr>
+        {{/baselinebonus}}
+
+        {{#lingfallback}}
+        <tr class="eg-student-extra">
+            <td class="eg-student-signum">&mdash;</td>
+            <td class="eg-student-signame-fired"><em>{{#str}}lingfallbackname, plagiarism_essayguard{{/str}}</em></td>
+            <td class="eg-student-sigmax">35</td>
+            <td><span class="eg-student-pts">+{{points}}</span></td>
+            <td><span class="eg-student-statuspill" title="{{#cleanstr}}appliedtitle, plagiarism_essayguard{{/cleanstr}}">{{#str}}statusapplied, plagiarism_essayguard{{/str}}</span></td>
+            <td class="eg-student-evidence eg-student-extradesc">{{#str}}lingfallbackdesc, plagiarism_essayguard{{/str}}</td>
+        </tr>
+        {{/lingfallback}}
+
+        <tr class="eg-student-total">
+            <td></td>
+            <td>{{#str}}finalscore, plagiarism_essayguard{{/str}}</td>
+            <td class="eg-student-sigmax">100</td>
+            <td><span class="eg-student-finalscore eg-student-level-{{finallevel}}">{{finalscore}}</span></td>
+            <td>{{#precapnote}}<span class="eg-student-precap">{{precapnote}}</span>{{/precapnote}}</td>
+            <td></td>
+        </tr>
+    </tbody>
+</table>
+{{/hasbreakdown}}
+{{^hasbreakdown}}
+<p class="eg-student-nobreakdown">{{#str}}nobreakdown, plagiarism_essayguard{{/str}}</p>
+{{/hasbreakdown}}

@@ -43,6 +43,13 @@ use core_privacy\local\request\writer;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class provider implements core_userlist_provider, metadata_provider, plugin_provider, user_preference_provider {
+    /** @var array Preference name prefixes (suffixed with a cmid) => privacy description string. */
+    const PREFERENCES = [
+        'essayguard_ak_' => 'privacy:metadata:preference:essayguard_ak',
+        'essayguard_lastscore_' => 'privacy:metadata:preference:essayguard_lastscore',
+        'essayguard_fin_' => 'privacy:metadata:preference:essayguard_fin',
+    ];
+
     /**
      * Declare everything Essay Guard stores or transmits about a user.
      *
@@ -136,6 +143,20 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             'privacy:metadata:essayguard_fingerprint'
         );
 
+        $collection->add_database_table(
+            'plagiarism_essayguard_fpm',
+            [
+                'userid'       => 'privacy:metadata:essayguard_fpm:userid',
+                'contexttype'  => 'privacy:metadata:essayguard_fpm:contexttype',
+                'metricname'   => 'privacy:metadata:essayguard_fpm:metricname',
+                'samplen'      => 'privacy:metadata:essayguard_fpm:samplen',
+                'runmean'      => 'privacy:metadata:essayguard_fpm:runmean',
+                'runm2'        => 'privacy:metadata:essayguard_fpm:runm2',
+                'timemodified' => 'privacy:metadata:essayguard_fpm:timemodified',
+            ],
+            'privacy:metadata:essayguard_fpm'
+        );
+
         // V1.2.219: The plugin makes three outbound HTTPS calls to lms-labs.com
         // (licence verify, auto-unlock, platform settings) carrying the site ID and API
         // key. No student text is sent — but an external transmission that was not
@@ -151,22 +172,17 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             'privacy:metadata:lms_labs_licence'
         );
 
-        // V1.2.219: inject_tracker() writes essayguard_ak_<cmid>, and log_event.php
-        // writes essayguard_lastscore_<cmid>. Neither was declared, exported, or deleted.
-        $collection->add_user_preference(
-            'essayguard_ak_',
-            'privacy:metadata:preference:essayguard_ak'
-        );
-        $collection->add_user_preference(
-            'essayguard_lastscore_',
-            'privacy:metadata:preference:essayguard_lastscore'
-        );
+        // Per-activity preferences: the typing-session key, and the two throttle
+        // timestamps written by log_event and finalize_attempt.
+        foreach (self::PREFERENCES as $prefix => $stringkey) {
+            $collection->add_user_preference($prefix, $stringkey);
+        }
 
         return $collection;
     }
 
     /**
-     * v1.2.219: Export the user preferences declared above. Required by
+     * Export the user preferences declared above. Required by
      * core_userlist_provider consumers and by Moodle's privacy self-test — an undeclared,
      * unexported preference is a silent data holding.
      *
@@ -176,24 +192,21 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
     public static function export_user_preferences(int $userid): void {
         global $DB;
 
+        [$where, $params] = self::preference_name_sql();
         $prefs = $DB->get_records_select(
             'user_preferences',
-            "userid = :userid AND (" . $DB->sql_like('name', ':akname') . " OR " . $DB->sql_like('name', ':lsname') . ")",
-            [
-                'userid' => $userid,
-                'akname' => 'essayguard_ak_%',
-                'lsname' => 'essayguard_lastscore_%',
-            ]
+            "userid = :userid AND ({$where})",
+            ['userid' => $userid] + $params
         );
 
         foreach ($prefs as $pref) {
-            // V1.2.229 FIX-EG-PRIVACY-PREF-DESCRIPTION: both preferences were exported
-            // with the attempt-key description, so a student's export explained the
-            // scoring-throttle marker as "the typing session key for this activity".
-            // Two different holdings must not be described as the same holding.
-            $descriptionkey = (strpos($pref->name, 'essayguard_lastscore_') === 0)
-                ? 'privacy:metadata:preference:essayguard_lastscore'
-                : 'privacy:metadata:preference:essayguard_ak';
+            $descriptionkey = 'privacy:metadata:preference:essayguard_ak';
+            foreach (self::PREFERENCES as $prefix => $stringkey) {
+                if (strpos($pref->name, $prefix) === 0) {
+                    $descriptionkey = $stringkey;
+                    break;
+                }
+            }
             writer::export_user_preference(
                 'plagiarism_essayguard',
                 $pref->name,
@@ -204,7 +217,25 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
     }
 
     /**
-     * v1.2.219: THIS QUERIED ONLY THE EVENTS TABLE, WHICH IS THE ONE TABLE THAT GETS
+     * SQL matching every preference name this plugin writes.
+     *
+     * @return array [where fragment, params]
+     */
+    private static function preference_name_sql(): array {
+        global $DB;
+        $conditions = [];
+        $params = [];
+        $i = 0;
+        foreach (array_keys(self::PREFERENCES) as $prefix) {
+            $conditions[] = $DB->sql_like('name', ':egpref' . $i);
+            $params['egpref' . $i] = $DB->sql_like_escape($prefix) . '%';
+            $i++;
+        }
+        return [implode(' OR ', $conditions), $params];
+    }
+
+    /**
+     * THIS QUERIED ONLY THE EVENTS TABLE, WHICH IS THE ONE TABLE THAT GETS
      * PRUNED.
      *
      * The cleanup task deletes from _ev after retentiondays (default 90) and explicitly
@@ -243,14 +274,16 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
         // baseline is not invisible to the framework.
         $sql = "SELECT c.id
                   FROM {context} c
-                  JOIN {plagiarism_essayguard_fp} fp ON fp.userid = :fpuserid
-                 WHERE c.contextlevel = :syslevel";
+                 WHERE c.contextlevel = :syslevel
+                   AND (EXISTS (SELECT 1 FROM {plagiarism_essayguard_fp} fp WHERE fp.userid = :fpuserid)
+                        OR EXISTS (SELECT 1 FROM {plagiarism_essayguard_fpm} fpm WHERE fpm.userid = :fpmuserid))";
         $contextlist->add_from_sql(
             $sql,
             [
                 'fpuserid' => $userid,
+                'fpmuserid' => $userid,
                 'syslevel' => CONTEXT_SYSTEM,
-                ]
+            ]
         );
 
         return $contextlist;
@@ -281,6 +314,8 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
         // never saw the users whose baselines it should be deleting.
         if ($context->contextlevel == CONTEXT_SYSTEM) {
             $sql = "SELECT DISTINCT userid FROM {plagiarism_essayguard_fp}";
+            $userlist->add_from_sql('userid', $sql, []);
+            $sql = "SELECT DISTINCT userid FROM {plagiarism_essayguard_fpm}";
             $userlist->add_from_sql('userid', $sql, []);
         }
     }
@@ -333,8 +368,9 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
                 $data['riskscore']    = (float)$sc->riskscore;
                 $data['timemodified'] = \core_privacy\local\request\transform::datetime($sc->timemodified);
                 writer::with_context(
-                    $context)->export_data(
-                        [
+                    $context
+                )->export_data(
+                    [
                         get_string('pluginname', 'plagiarism_essayguard'),
                         get_string('privacy:export:scores', 'plagiarism_essayguard'),
                         $sc->attemptkey,
@@ -371,8 +407,9 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             }
             foreach ($eventsbyattempt as $akey => $evlist) {
                 writer::with_context(
-                    $context)->export_data(
-                        [
+                    $context
+                )->export_data(
+                    [
                         get_string('pluginname', 'plagiarism_essayguard'),
                         get_string('privacy:export:telemetry', 'plagiarism_essayguard'),
                         $akey,
@@ -404,8 +441,9 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
                     ),
                 ];
                 writer::with_context(
-                    $context)->export_data(
-                        [
+                    $context
+                )->export_data(
+                    [
                         get_string('pluginname', 'plagiarism_essayguard'),
                         get_string('privacy:export:telemetry', 'plagiarism_essayguard'),
                         $row->attemptkey,
@@ -415,26 +453,47 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             }
         }
 
-        // Export fingerprint (global to user, not per-context).
+        // The writing baseline is per user, not per activity, and is reported in the
+        // system context.
+        $contextsystem = \context_system::instance();
         $fp = $DB->get_record('plagiarism_essayguard_fp', ['userid' => $userid]);
         if ($fp) {
-            $contextsystem = \context_system::instance();
-            // V1.2.229 FIX-EG-PRIVACY-EXPORT-UNDERSTATED: five of the eight declared
-            // baseline columns (pause mean, burst mean, vocabulary diversity, entropy,
-            // inter-keystroke mean) were declared and never exported. The baseline is the
-            // longest-lived record this plugin keeps - it survives the retention prune
-            // that clears the raw telemetry - so it is the one a data subject is most
-            // likely to ask about.
             $fpdata = (array)$fp;
             unset($fpdata['id'], $fpdata['userid']);
             $fpdata['timemodified'] = \core_privacy\local\request\transform::datetime($fp->timemodified);
-            writer::with_context(
-                $contextsystem)->export_data(
-                    [
+            writer::with_context($contextsystem)->export_data(
+                [
                     get_string('pluginname', 'plagiarism_essayguard'),
                     get_string('privacy:export:fingerprint', 'plagiarism_essayguard'),
-                    ],
+                ],
                 (object)$fpdata
+            );
+        }
+
+        $metrics = $DB->get_records(
+            'plagiarism_essayguard_fpm',
+            ['userid' => $userid],
+            'contexttype ASC, metricname ASC',
+            'id, contexttype, metricname, samplen, runmean, runm2, timemodified'
+        );
+        if ($metrics) {
+            $rows = [];
+            foreach ($metrics as $m) {
+                $rows[] = [
+                    'contexttype'  => $m->contexttype,
+                    'metricname'   => $m->metricname,
+                    'samplen'      => (int)$m->samplen,
+                    'runmean'      => (float)$m->runmean,
+                    'runm2'        => (float)$m->runm2,
+                    'timemodified' => \core_privacy\local\request\transform::datetime($m->timemodified),
+                ];
+            }
+            writer::with_context($contextsystem)->export_data(
+                [
+                    get_string('pluginname', 'plagiarism_essayguard'),
+                    get_string('privacy:export:fingerprintmetrics', 'plagiarism_essayguard'),
+                ],
+                (object)['metrics' => $rows]
             );
         }
     }
@@ -487,7 +546,11 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
         if ($context->contextlevel == CONTEXT_MODULE) {
             self::delete_preferences_for_cmid((int)$context->instanceid);
         }
-        // Fingerprint table is per-user (not per-context) — not deleted here.
+        // The writing baseline is reported in the system context, so it is purged there.
+        if ($context->contextlevel == CONTEXT_SYSTEM) {
+            $DB->delete_records('plagiarism_essayguard_fp');
+            $DB->delete_records('plagiarism_essayguard_fpm');
+        }
     }
 
     /**
@@ -505,10 +568,11 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
         }
         $DB->delete_records_select(
             'user_preferences',
-            'name = :akname OR name = :lsname',
+            'name = :akname OR name = :lsname OR name = :finname',
             [
                 'akname' => 'essayguard_ak_' . $cmid,
                 'lsname' => 'essayguard_lastscore_' . $cmid,
+                'finname' => 'essayguard_fin_' . $cmid,
             ]
         );
     }
@@ -526,8 +590,9 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             $DB->delete_records('plagiarism_essayguard_ev', ['contextid' => $context->id, 'userid' => $userid]);
             $DB->delete_records('plagiarism_essayguard_sc', ['contextid' => $context->id, 'userid' => $userid]);
         }
-        // Delete the user's fingerprint record completely.
+        // Delete the user's writing baseline completely.
         $DB->delete_records('plagiarism_essayguard_fp', ['userid' => $userid]);
+        $DB->delete_records('plagiarism_essayguard_fpm', ['userid' => $userid]);
 
         // V1.2.219: Also erase the undeclared user preferences this plugin writes
         // (essayguard_ak_<cmid>, essayguard_lastscore_<cmid>). Before this, a completed
@@ -536,7 +601,7 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
     }
 
     /**
-     * v1.2.219: Remove the essayguard_* user preferences for one or more users.
+     * Remove the essayguard_* user preferences for one or more users.
      *
      * @param int|array $userids A single user id, or an array of user ids, to clear
      *                            the essayguard_* preferences for.
@@ -550,20 +615,8 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
             return;
         }
         [$insql, $inparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
-
-        $DB->delete_records_select(
-            'user_preferences',
-            "userid {$insql} AND ("
-                . $DB->sql_like('name', ':akname') . " OR "
-                . $DB->sql_like('name', ':lsname') . ")",
-            array_merge(
-                $inparams,
-                [
-                    'akname' => 'essayguard_ak_%',
-                    'lsname' => 'essayguard_lastscore_%',
-                    ]
-            )
-        );
+        [$where, $params] = self::preference_name_sql();
+        $DB->delete_records_select('user_preferences', "userid {$insql} AND ({$where})", $inparams + $params);
     }
 
     /**
@@ -605,6 +658,7 @@ class provider implements core_userlist_provider, metadata_provider, plugin_prov
         // Fingerprints are global per-user — delete for all approved users.
         [$insql2, $inparams2] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED);
         $DB->delete_records_select('plagiarism_essayguard_fp', "userid {$insql2}", $inparams2);
+        $DB->delete_records_select('plagiarism_essayguard_fpm', "userid {$insql2}", $inparams2);
 
         // V1.2.219: and the user preferences — see delete_preferences_for_users().
         self::delete_preferences_for_users($userids);

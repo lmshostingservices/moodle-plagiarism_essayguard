@@ -1,5 +1,74 @@
 # Changelog
 
+## 1.4.1 - 2026-10-08
+
+**Moodle Plugins Directory review fixes**
+
+Version: `2026100800`. Schema: no new structures; an upgrade step repairs sites whose
+earlier upgrade stopped part-way.
+
+### Upgrade (approval blocker)
+- `db/upgrade.php` rewritten: exactly one `if ($oldversion < X)` block per version, each
+  ending in one savepoint. 1.4.0 had duplicate blocks for 29 versions, so an upgrade from
+  any release older than 2026072300 stopped with `cannotdowngrade`.
+- New 2026100800 step re-checks every table, field and index in `install.xml` and creates
+  what is missing, and restores the declared scale of decimal columns (earlier releases
+  created them with no decimals). Sites that hit the 1.4.0 failure are repaired.
+- Orphaned telemetry from very old releases is queued for the scoring task instead of
+  being scored inside the upgrade.
+- Tested: upgrade from 2026030500 and from 2026060500, upgrade of a damaged 2026100700
+  schema, and a fresh install; all end with no schema differences.
+
+### Privacy
+- `plagiarism_essayguard_fpm` declared, found, exported and deleted on every path; the
+  writing baseline (`_fp` and `_fpm`) is purged when the system context is purged, and
+  pruned by the cleanup task.
+- `essayguard_fin_<cmid>` preference declared, exported and deleted.
+
+### Monitoring is opt-in
+- Installed with `enabled = 0`. A missing per-activity setting now means "off".
+- Upgrading sites keep what they already monitored: a never-saved site switch is recorded
+  as on when Essay Guard holds data, and each activity with Essay Guard data is recorded
+  as on.
+- The activity form shows the activity's real state.
+
+### Backup and restore
+- The per-activity setting is backed up and restored onto the new course module
+  (restore, import, duplicate).
+
+### Unlock credits
+- One price everywhere: 50 credits (US$5).
+- Status checks (cron, settings save, "Check unlock status") never purchase. Credits are
+  spent only after the administrator confirms the amount on a confirmation screen (POST
+  with sesskey).
+- The API key is sent in an `Authorization: Bearer` header, never in a URL.
+
+### Output, JavaScript and strings
+- report.php, student.php, rescore.php, settings.php, the badge, the disclosure and the
+  floating report button render through Mustache templates; inline JavaScript moved to
+  AMD modules (`student`, `rescore`); settings page uses a moodleform.
+- Hard-coded English moved to language strings (student.php help text, reporter.js and
+  tracker.js labels).
+- Redundant `$PAGE->requires->css()` calls removed.
+
+### Quiz scoring
+- Quiz submissions queue an ad-hoc task (`score_attempt`) instead of scoring inside the
+  submit request. Badges read "Pending" until it runs.
+
+### Fixed while testing
+- Quiz review badges never appeared: the core essay renderer passes the context id and
+  slot, not `cmid`/`questionattempt`; both are now read.
+- tracker.js: `flush()` called `.finally()` on a jQuery promise, throwing on every flush.
+- Quiz disclosure was drawn under the theme's fixed navigation bar; now shown as a page
+  notification.
+- rescore.php raised a debugging notice for missing name fields; the overwrite button is
+  no longer disabled once every attempt is scored.
+- Analyser event cache could not be cleared (stale scores in long-running processes);
+  diagnostic `debugging()` calls removed from normal scoring.
+- Baseline rhythm explanation no longer claims a direction it did not measure.
+- Test suite brought back in line with 1.4.0 behaviour (36 tests were failing in 1.4.0);
+  7 data sets skipped pending a scoring-calibration decision on the paste cap rounding.
+
 ## 1.4.0 - 2026-10-05
 
 **Building the claims, instead of deleting them**

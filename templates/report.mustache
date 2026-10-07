@@ -1,0 +1,132 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/report
+
+    Essay Guard class behaviour analysis report for one activity.
+
+    Classes required for JS:
+    * none
+
+    Data attributes required for JS:
+    * none
+
+    Context variables required for this template:
+    * gradeurl - URL of the activity grading page.
+    * release - Installed plugin release.
+    * activityname - Activity name.
+    * coursename - Course full name.
+    * status - Context for plagiarism_essayguard/report_status.
+    * statcards - Array of stat cards, each with variant (total, high, medium, low, notassessed), label and value.
+    * hasrows - Whether any student has Essay Guard data.
+    * rows - Rows for plagiarism_essayguard/report_submissions.
+    * isquiz - Whether the activity is a quiz (offers the rescore tool in the empty state).
+    * rescoreurl - URL of the retroactive rescore tool.
+    * hashighrisk - Whether any student is high risk.
+    * highrisk - Rows for plagiarism_essayguard/report_highrisk.
+
+    Example context (json):
+    {
+        "gradeurl": "https://example.com/mod/quiz/report.php?id=5&mode=grading",
+        "release": "1.3.0",
+        "activityname": "Week 3 essay quiz",
+        "coursename": "Certificate IV in Training and Assessment",
+        "status": {
+            "show": true,
+            "globaldisabled": false,
+            "cmdisabled": true,
+            "notunlocked": false,
+            "settingsurl": "https://example.com/admin/settings.php?section=plagiarismsettingessayguard"
+        },
+        "statcards": [
+            {"variant": "total", "label": "Total Submissions", "value": 1},
+            {"variant": "high", "label": "High Risk", "value": 1},
+            {"variant": "medium", "label": "Medium Risk", "value": 0},
+            {"variant": "low", "label": "Low Risk", "value": 0},
+            {"variant": "notassessed", "label": "Not assessed", "value": 0}
+        ],
+        "hasrows": true,
+        "rows": [
+            {
+                "fullname": "Ann Smith",
+                "profileurl": "https://example.com/user/view.php?id=3&course=2",
+                "showemail": false,
+                "email": "ann@example.com",
+                "level": "high",
+                "ishigh": true,
+                "score": 72,
+                "risklabel": "HIGH",
+                "qcount": 1,
+                "analysed": "07 Oct 2026 10:15",
+                "detailurl": "https://example.com/plagiarism/essayguard/student.php?cmid=5&userid=3",
+                "questions": [
+                    {"label": "Question 1", "level": "high", "score": 72, "unmeasured": false,
+                        "scorelabel": "HIGH", "risklabel": "HIGH"}
+                ]
+            }
+        ],
+        "isquiz": true,
+        "rescoreurl": "https://example.com/plagiarism/essayguard/rescore.php?cmid=5",
+        "hashighrisk": true,
+        "highrisk": [
+            {
+                "fullname": "Ann Smith",
+                "score": 72,
+                "risklabel": "HIGH",
+                "signal": "Large paste",
+                "detailurl": "https://example.com/plagiarism/essayguard/student.php?cmid=5&userid=3"
+            }
+        ]
+    }
+}}
+{{#status}}{{> plagiarism_essayguard/report_status}}{{/status}}
+<div class="eg-class-header">
+    <div class="eg-class-header-inner">
+        <h2 class="eg-class-title">{{#str}}classreportheading, plagiarism_essayguard{{/str}}</h2>
+        <p class="eg-class-meta">
+            <span class="eg-version-badge">{{release}}</span>
+            &nbsp;&nbsp;{{#str}}essayguard, plagiarism_essayguard{{/str}}
+        </p>
+    </div>
+    <a href="{{gradeurl}}" class="eg-back-btn"><span aria-hidden="true">&#8592;</span> {{#str}}backtograding, plagiarism_essayguard{{/str}}</a>
+</div>
+<p class="eg-class-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
+
+<div class="eg-stat-cards">
+    {{#statcards}}
+    <div class="eg-stat-card eg-stat-card-{{variant}}">
+        <div class="eg-stat-num">{{value}}</div>
+        <div class="eg-stat-label">{{label}}</div>
+    </div>
+    {{/statcards}}
+</div>
+
+{{^hasrows}}
+<div class="essayguard-empty">
+    <p class="eg-empty-text">{{#str}}emptystate, plagiarism_essayguard{{/str}}</p>
+    {{#isquiz}}
+    <div class="eg-rescore-prompt">
+        <strong>{{#str}}rescoreprompt, plagiarism_essayguard{{/str}}</strong>
+        {{#str}}useword, plagiarism_essayguard{{/str}}<a href="{{rescoreurl}}" class="eg-rescore-link">{{#str}}rescoretoollink, plagiarism_essayguard{{/str}}</a>{{#str}}rescoreprompttail, plagiarism_essayguard{{/str}}
+    </div>
+    {{/isquiz}}
+</div>
+{{/hasrows}}
+{{#hasrows}}
+{{> plagiarism_essayguard/report_submissions}}
+{{> plagiarism_essayguard/report_highrisk}}
+{{/hasrows}}

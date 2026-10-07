@@ -1,0 +1,135 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/student_question_card
+
+    One per-question card on the student detail report: a header that expands/collapses
+    the signal breakdown, the question text and student answer (always visible), and the
+    hidden body with the score bar and signal table.
+
+    Data attributes required for JS:
+    * data-action="plagiarism_essayguard-student-togglecard" on the header (aria-controls = body id)
+
+    Context variables required for this template:
+    * slot - int question slot
+    * cardid - string unique id of the card
+    * bodyid - string unique id of the collapsible body
+    * level - string low|medium|high|nodata
+    * badgelabel - string upper-case risk label
+    * title - string "Question N"
+    * unmeasured - bool true when the slot was never assessed
+    * score - int score 0-100
+    * keystrokes, pastes, avgwpm, typing - string formatted header stats
+    * hastexts - bool whether question text or answer text is present
+    * questiontext - false or object, see plagiarism_essayguard/student_truncated_text
+    * answertext - false or object, see plagiarism_essayguard/student_truncated_text
+    * shownodatanotice - bool
+    * barwidth - int 0-100
+    * scoreline - string e.g. "42/100 — Medium Risk"
+    * signaltable - object, see plagiarism_essayguard/student_signal_table
+
+    Example context (json):
+    {
+        "slot": 2,
+        "cardid": "eg-q-card-2",
+        "bodyid": "eg-q-body-2",
+        "level": "high",
+        "badgelabel": "HIGH",
+        "title": "Question 2",
+        "unmeasured": false,
+        "score": 71,
+        "keystrokes": "Keystrokes: 140",
+        "pastes": "Pastes: 3",
+        "avgwpm": "Avg WPM: 96.4",
+        "typing": "Typing: 12.5 s",
+        "hastexts": true,
+        "questiontext": {
+            "id": "eg-qt-2",
+            "islong": false,
+            "short": "Describe the principles of assessment.",
+            "full": "Describe the principles of assessment.",
+            "morelabel": "more",
+            "lesslabel": "less"
+        },
+        "answertext": false,
+        "shownodatanotice": false,
+        "barwidth": 71,
+        "scoreline": "71/100 — High Risk",
+        "signaltable": {
+            "hasbreakdown": false
+        }
+    }
+}}
+<div id="{{cardid}}" class="eg-student-qcard eg-student-level-{{level}}">
+    <div class="eg-student-qheader" role="button" tabindex="0"
+         data-action="plagiarism_essayguard-student-togglecard"
+         aria-expanded="false" aria-controls="{{bodyid}}">
+        <span class="eg-student-qbadge"><span class="eg-student-qdot"></span>{{badgelabel}}</span>
+        <strong class="eg-student-qtitle">{{title}}</strong>
+        <span class="eg-student-qstats">
+            {{#unmeasured}}
+            <span class="eg-muted">{{#str}}student_scoreoutof, plagiarism_essayguard, —{{/str}}</span>
+            {{/unmeasured}}
+            {{^unmeasured}}
+            <span><strong class="eg-student-qscore">{{score}}</strong>{{#str}}student_outof100compact, plagiarism_essayguard{{/str}}</span>
+            {{/unmeasured}}
+            <span>{{keystrokes}}</span>
+            <span>{{pastes}}</span>
+            <span>{{avgwpm}}</span>
+            <span>{{typing}}</span>
+            <span class="eg-muted"><span class="eg-student-qchevron" aria-hidden="true">&#9660;</span> {{#str}}signalsword, plagiarism_essayguard{{/str}}</span>
+        </span>
+    </div>
+
+    {{#hastexts}}
+    <div class="eg-student-qtexts">
+        {{#questiontext}}
+        <div>
+            <div class="eg-student-qtextlabel">{{#str}}questionheading, plagiarism_essayguard{{/str}}</div>
+            <div class="eg-student-qtextbox eg-student-qtextbox-question">
+                {{> plagiarism_essayguard/student_truncated_text }}
+            </div>
+        </div>
+        {{/questiontext}}
+        {{#answertext}}
+        <div>
+            <div class="eg-student-qtextlabel">{{#str}}studentanswer, plagiarism_essayguard{{/str}}</div>
+            <div class="eg-student-qtextbox eg-student-qtextbox-answer">
+                {{> plagiarism_essayguard/student_truncated_text }}
+            </div>
+        </div>
+        {{/answertext}}
+    </div>
+    {{/hastexts}}
+
+    <div id="{{bodyid}}" class="eg-student-qbody" hidden>
+        {{#shownodatanotice}}
+        <div class="eg-student-nodatanotice">{{#str}}nodatanotice, plagiarism_essayguard{{/str}}</div>
+        {{/shownodatanotice}}
+
+        <div class="eg-student-qbarrow">
+            <div class="eg-student-qbar">
+                <div class="eg-student-barfill" style="width: {{barwidth}}%;"></div>
+            </div>
+            <span class="eg-student-qscoreline">{{scoreline}}</span>
+        </div>
+
+        {{#signaltable}}
+            {{> plagiarism_essayguard/student_signal_table }}
+        {{/signaltable}}
+    </div>
+</div>

@@ -1,0 +1,167 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/rescore
+
+    Retroactive rescore tool page body: plugin status, last run results,
+    the rescore form and a preview of recent attempts.
+
+    Classes required for JS:
+    * none (JS hooks use data-action attributes)
+
+    Data attributes required for JS:
+    * data-action="plagiarism_essayguard-rescore-force" on the overwrite button
+
+    Context variables required for this template:
+    * reporturl - string - URL of the Essay Guard report for this activity
+    * cmname - string - Formatted activity name (HTML from format_string)
+    * attemptsfound - string - "N finished attempts found" label
+    * statusok - bool - Plugin is enabled and unlocked
+    * statusdisabled - bool - Plugin is globally disabled
+    * statuslocked - bool - Plugin is enabled but not unlocked
+    * settingsurl - string - URL of the Essay Guard admin settings
+    * error - string - Error message from a rescore run, if any
+    * rundone - bool - A rescore batch was run on this request
+    * results - object - Run results (see plagiarism_essayguard/rescore_results)
+    * hasattempts - bool - The activity has finished attempts
+    * form - object - Rescore form: actionurl, sesskey, afterid, btnlabel, disabled, overwritedisabled, showoverwrite, total
+    * preview - array - Recent attempts: name, submitted, hasdata
+    * previewcount - int - Number of attempts in the preview
+
+    Example context (json):
+    {
+        "reporturl": "https://example.com/plagiarism/essayguard/report.php?cmid=5",
+        "cmname": "Week 3 essay quiz",
+        "attemptsfound": "2 finished attempts found",
+        "statusok": true,
+        "statusdisabled": false,
+        "statuslocked": false,
+        "settingsurl": "https://example.com/admin/settings.php?section=plagiarismsettingessayguard",
+        "error": null,
+        "rundone": true,
+        "results": {
+            "scored": 1, "skipped": 1, "notext": 0, "errors": 0, "remaining": 0, "hasrows": true,
+            "rows": [
+                {"name": "Ann Smith", "qaid": 12, "detail": "LOW 12% (Q1 + aggregate)", "statusclass": "eg-rescore-result-low"},
+                {"name": "Bob Jones", "qaid": 11, "detail": "Already has Essay Guard data", "statusclass": "eg-rescore-result-skipped"}
+            ]
+        },
+        "hasattempts": true,
+        "form": {
+            "actionurl": "https://example.com/plagiarism/essayguard/rescore.php?cmid=5",
+            "sesskey": "abc123",
+            "afterid": 11,
+            "btnlabel": "All attempts already scored",
+            "disabled": true,
+            "overwritedisabled": false,
+            "showoverwrite": true,
+            "total": 2
+        },
+        "preview": [
+            {"name": "Ann Smith", "submitted": "7/10/26, 09:30", "hasdata": true},
+            {"name": "Bob Jones", "submitted": "6/10/26, 14:05", "hasdata": false}
+        ],
+        "previewcount": 2
+    }
+}}
+<div class="eg-rescore">
+    <a href="{{reporturl}}" class="essayguard-back-link">&#8592; {{#str}}rescore_backtoreport, plagiarism_essayguard{{/str}}</a>
+
+    <h2 class="eg-rescore-title">{{#str}}rescore_heading, plagiarism_essayguard{{/str}}</h2>
+    <p class="eg-rescore-subtitle text-muted">{{{cmname}}} &nbsp;|&nbsp; {{attemptsfound}}</p>
+
+    <div class="alert alert-success">
+        <strong>{{#str}}rescore_introheading, plagiarism_essayguard{{/str}}</strong>
+        {{#str}}rescore_intro, plagiarism_essayguard{{/str}}
+    </div>
+
+    {{#statusok}}
+    <div class="alert alert-success" role="status">
+        {{#pix}}i/valid, core{{/pix}} {{#str}}rescore_statusok, plagiarism_essayguard{{/str}}
+    </div>
+    {{/statusok}}
+    {{#statusdisabled}}
+    <div class="alert alert-warning" role="status">
+        {{#pix}}i/warning, core{{/pix}} {{#str}}rescore_statusdisabled, plagiarism_essayguard{{/str}}
+    </div>
+    {{/statusdisabled}}
+    {{#statuslocked}}
+    <div class="alert alert-warning" role="status">
+        {{#pix}}i/warning, core{{/pix}} {{#str}}rescore_statuslockedstart, plagiarism_essayguard{{/str}}<a href="{{settingsurl}}" class="alert-link">{{#str}}settingslink, plagiarism_essayguard{{/str}}</a>{{#str}}rescore_statuslockedtail, plagiarism_essayguard{{/str}}
+    </div>
+    {{/statuslocked}}
+
+    {{#error}}
+    <div class="alert alert-danger" role="alert">
+        {{#pix}}i/invalid, core{{/pix}} {{error}}
+    </div>
+    {{/error}}
+    {{^error}}
+        {{#rundone}}
+            {{#results}}
+                {{> plagiarism_essayguard/rescore_results }}
+            {{/results}}
+        {{/rundone}}
+    {{/error}}
+
+    {{#hasattempts}}
+    {{#form}}
+    <form method="post" action="{{actionurl}}">
+        <input type="hidden" name="sesskey" value="{{sesskey}}">
+        <input type="hidden" name="action" value="rescore">
+        <input type="hidden" name="force" value="0">
+        <input type="hidden" name="afterid" value="{{afterid}}">
+        <div class="eg-rescore-actions">
+            <button type="submit" class="btn btn-primary"{{#disabled}} disabled{{/disabled}}>{{btnlabel}}</button>
+            {{#showoverwrite}}
+            <button type="button" class="btn btn-outline-primary"
+                data-action="plagiarism_essayguard-rescore-force"{{#overwritedisabled}} disabled{{/overwritedisabled}}>
+                {{#str}}rescore_overwrite, plagiarism_essayguard, {{total}}{{/str}}
+            </button>
+            {{/showoverwrite}}
+        </div>
+    </form>
+    {{/form}}
+
+    <h3 class="eg-rescore-preview-heading">{{#str}}rescore_previewheading, plagiarism_essayguard{{/str}}</h3>
+    <p class="eg-muted small">{{#str}}rescore_previewnote, plagiarism_essayguard, {{previewcount}}{{/str}}</p>
+    <table class="table table-sm eg-rescore-table">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}}rescore_colstudent, plagiarism_essayguard{{/str}}</th>
+                <th scope="col">{{#str}}rescore_colsubmitted, plagiarism_essayguard{{/str}}</th>
+                <th scope="col">{{#str}}rescore_colstatus, plagiarism_essayguard{{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#preview}}
+            <tr>
+                <td>{{name}}</td>
+                <td class="text-muted">{{submitted}}</td>
+                <td>
+                    {{#hasdata}}<span class="text-success font-weight-bold">&#x2713; {{#str}}rescore_scored, plagiarism_essayguard{{/str}}</span>{{/hasdata}}
+                    {{^hasdata}}<span class="eg-muted">{{#str}}rescore_notscored, plagiarism_essayguard{{/str}}</span>{{/hasdata}}
+                </td>
+            </tr>
+            {{/preview}}
+        </tbody>
+    </table>
+    {{/hasattempts}}
+    {{^hasattempts}}
+    <p class="text-muted">{{#str}}rescore_noattempts, plagiarism_essayguard{{/str}}</p>
+    {{/hasattempts}}
+</div>

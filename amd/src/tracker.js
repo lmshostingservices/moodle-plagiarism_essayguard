@@ -152,14 +152,16 @@ define(['core/ajax'], function(Ajax) {
             };
         });
 
-        state.flushPromise = Ajax.call([{
+        // Ajax.call() returns a jQuery promise, which has no finally(); wrap it in a
+        // native Promise so the in-flight flag is always cleared.
+        state.flushPromise = Promise.resolve(Ajax.call([{
             methodname: 'plagiarism_essayguard_log_event',
             args: {
                 cmid: state.cmid,
                 attemptkey: state.attemptkey,
                 events: wire,
             }
-        }])[0].then(function(result) {
+        }])[0]).then(function(result) {
             // Commit by IDENTITY, not by index.
             //
             // v1.2.220: this was `state.queue.splice(0, batchLen)`, which assumed index 0
@@ -329,10 +331,10 @@ define(['core/ajax'], function(Ajax) {
         }
         field.dataset.essayguardBound = '1';
         // DIAG-EG-BIND (v1.2.145): Confirm which field is being monitored.
-        // FIX-EG-PREVLEN-CONTENTEDITABLE (v1.2.87): use field.value != null so
-        // contenteditable elements fall through to textContent for initial length.
+        // Contenteditable elements have no value, so fall through to textContent.
+        var hasValue = (field.value !== null && field.value !== undefined);
         state.lastLengths.set(field,
-            field.value != null ? field.value.length : (field.textContent ? field.textContent.length : 0));
+            hasValue ? field.value.length : (field.textContent ? field.textContent.length : 0));
 
         // FIX-EG-QSLOT-LOCKTIME (v1.2.89): capture qslot once at bind time so events
         // fired before dataset resolves are not tagged qslot=0. Priority: data-essayguard-qslot,
@@ -923,9 +925,6 @@ define(['core/ajax'], function(Ajax) {
 
     var scan = function() {
         // DIAG-EG-SCAN (v1.2.145): Log every scan() call so we can confirm the tracker is alive.
-        var nTextareas = document.querySelectorAll('textarea').length;
-        var nAtto     = document.querySelectorAll('[contenteditable="true"], .editor_atto_content').length;
-        var nToxIframes = document.querySelectorAll('.tox-edit-area iframe, .tox-tinymce iframe').length;
 
         var selectors = [
             'textarea',
@@ -952,7 +951,7 @@ define(['core/ajax'], function(Ajax) {
                 // FIX-EG-ATTO-QSLOT-SCOPE (v1.2.62): The previous implementation fell back
                 // to document.querySelector('textarea[name*=":"]') when .editor_atto_wrap
                 // was not an ancestor. On multi-essay-question pages this returned the FIRST
-                // quiz textarea in the entire document (always Q1) for every Atto editor  - 
+                // quiz textarea in the entire document (always Q1) for every Atto editor -
                 // so every event from Q2, Q3, etc. was tagged with Q1's qslot, making all
                 // per-question behavioral metrics identical. Fix: scope the textarea search
                 // to .editor_atto_wrap first, then to the enclosing Moodle quiz question
@@ -1114,66 +1113,51 @@ define(['core/ajax'], function(Ajax) {
     };
 
     /**
+     * Translated UI string passed from PHP in the init config.
+     *
+     * @param {string} key String key (see plagiarism_essayguard_inject_tracker()).
+     * @param {Object} [params] Values substituted for {$a->name} placeholders.
+     * @returns {string}
+     */
+    var str = function(key, params) {
+        var text = (state.strings && state.strings[key]) || '';
+        if (params) {
+            Object.keys(params).forEach(function(name) {
+                text = text.split('{$a->' + name + '}').join(String(params[name]));
+            });
+        }
+        return text;
+    };
+
+    /**
      * Build and return a risk badge DOM element from score data.
      * @param {{risklevel: string, score100: number}} data
+     * @param {number|string} slot Question slot; 0 for the whole attempt.
      * @returns {HTMLElement}
      */
     var buildBadgeEl = function(data, slot) {
-        // v1.2.66: Labels match Essay Guard docs: Low / Medium / High.
-        // v1.2.65: score100 is authenticity % (100 - risk).
-        var palette = {
-            low:    {bg: '#f0fdf4', border: '#86efac', text: '#166534'},
-            medium: {bg: '#fff7ed', border: '#fdba74', text: '#7c2d12'},
-            high:   {bg: '#fef2f2', border: '#fca5a5', text: '#991b1b'},
-        };
-        var labelMap = {
-            low:    'Low',
-            medium: 'Medium',
-            high:   'High',
-        };
-        var level  = (data.risklevel in palette) ? data.risklevel : 'low';
-        var c      = palette[level];
-        var label  = labelMap[level] || 'Low';
-        var pct    = typeof data.score100 === 'number' ? data.score100 : 0;
+        // An unrecognised level is shown as medium, never as the reassuring low.
+        var level = (['low', 'medium', 'high'].indexOf(data.risklevel) !== -1) ? data.risklevel : 'medium';
+        var pct = typeof data.score100 === 'number' ? data.score100 : 0;
 
         var badge = document.createElement('div');
-        // v1.2.38 FIX-EG-BADGE-MULTI: Use per-slot badge ID so multiple essay
-        // questions on the same page each get their own independent badge.
-        // Previously the hardcoded ID meant Q2's badge would remove Q1's badge
-        // (getElementById returns first match, remove() deleted it), and the
-        // badge always anchored to the first bound field regardless of which
-        // question triggered the finalisation.
+        // One badge per question slot, so several essay questions on a page do not clash.
         badge.id = 'essayguard-risk-badge-' + (slot !== undefined ? slot : 'main');
+        badge.className = 'essayguard-live-badge essayguard-live-badge-' + level;
         badge.setAttribute('role', 'status');
         badge.setAttribute('aria-live', 'polite');
-        badge.style.cssText = [
-            'display:inline-flex',
-            'align-items:center',
-            'gap:7px',
-            'padding:4px 12px',
-            'border-radius:12px',
-            'border:1px solid ' + c.border,
-            'background:' + c.bg,
-            'color:' + c.text,
-            'font-size:0.82rem',
-            'font-weight:600',
-            'margin-top:8px',
-            'line-height:1.4',
-        ].join(';');
 
-        // FIX-EG-TOAST-LABEL (v1.2.61): slot===0 is the aggregate (whole-attempt) result
-        // stored in sessionStorage and shown as the fixed toast on the next page. Label it
-        // "Overall:" so it is clearly distinct from per-question inline "Risk:" badges.
-        var riskLabel = (slot === 0) ? 'Overall' : 'Risk';
+        var name = document.createElement('span');
+        name.className = 'essayguard-live-badge-name';
+        name.textContent = str('pluginname');
+        badge.appendChild(name);
 
-        badge.innerHTML =
-            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"' +
-            ' fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"' +
-            ' stroke-linejoin="round" style="flex-shrink:0;">' +
-            '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>' +
-            '<span>Essay Guard</span>' +
-            '<span style="opacity:0.5;margin:0 2px;">|</span>' +
-            '<span>' + riskLabel + ': <strong>' + label + '</strong> (' + pct + '%)</span>';
+        var result = document.createElement('span');
+        result.textContent = str(slot === 0 ? 'overallresult' : 'riskresult', {
+            level: str('risk' + level),
+            score: pct,
+        });
+        badge.appendChild(result);
 
         return badge;
     };
@@ -1183,6 +1167,7 @@ define(['core/ajax'], function(Ajax) {
      * BUG-BADGE-NAV (v1.2.9 fix): persists badge data in sessionStorage so it
      * can be restored as a fixed toast on the NEXT page load.
      * @param {{risklevel: string, score100: number}} data
+     * @param {HTMLElement} [fieldOverride] Field to anchor the badge to.
      */
     var injectRiskBadge = function(data, fieldOverride) {
         // v1.2.219: This is now the student-facing degradation path, and it is load-bearing.
@@ -1312,27 +1297,7 @@ define(['core/ajax'], function(Ajax) {
             // Wrap aggregate badge + per-question breakdown into a single fixed-position
             // toast container so they stack and dismiss together.
             var toast = document.createElement('div');
-            toast.style.cssText = [
-                'position:fixed',
-                'top:16px',
-                'right:16px',
-                'z-index:99999',
-                'background:#ffffff',
-                'border:1px solid #e5e7eb',
-                'border-radius:10px',
-                'box-shadow:0 4px 14px rgba(0,0,0,0.12)',
-                'padding:10px 12px',
-                'max-width:340px',
-                'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif',
-            ].join(';');
-
-            // Aggregate badge inside the toast (override fixed positioning from buildBadgeEl).
-            badge.style.cssText = badge.style.cssText
-                .replace(/position:fixed;?/g, '')
-                .replace(/top:[^;]+;?/g, '')
-                .replace(/right:[^;]+;?/g, '')
-                .replace(/z-index:[^;]+;?/g, '')
-                .replace(/box-shadow:[^;]+;?/g, '');
+            toast.className = 'essayguard-toast';
             toast.appendChild(badge);
 
             if (perqMap && typeof perqMap === 'object') {
@@ -1341,40 +1306,25 @@ define(['core/ajax'], function(Ajax) {
                     .filter(function(s) { return s > 0; })
                     .sort(function(a, b) { return a - b; });
                 if (slots.length > 0) {
-                    var labelMap = {
-                        low: 'Low', medium: 'Medium', high: 'High',
-                    };
-                    var colourMap = {
-                        low: '#166534', medium: '#7c2d12', high: '#991b1b',
-                    };
                     var listEl = document.createElement('div');
-                    listEl.style.cssText = [
-                        'margin-top:8px',
-                        'padding-top:8px',
-                        'border-top:1px solid #e5e7eb',
-                        'font-size:0.78rem',
-                        'color:#374151',
-                        'line-height:1.55',
-                    ].join(';');
+                    listEl.className = 'essayguard-toast-perq';
                     var heading = document.createElement('div');
-                    heading.style.cssText = 'font-weight:600;margin-bottom:4px;color:#6b7280;';
-                    heading.textContent = 'Per question';
+                    heading.className = 'essayguard-toast-perq-heading';
+                    heading.textContent = str('perquestion');
                     listEl.appendChild(heading);
                     slots.forEach(function(slot) {
                         var d = perqMap[String(slot)];
-                        var lvl = (d && d.risklevel) || 'low';
-                        var lab = labelMap[lvl] || 'Low';
-                        var col = colourMap[lvl] || '#166534';
+                        var lvl = (d && ['low', 'medium', 'high'].indexOf(d.risklevel) !== -1) ? d.risklevel : 'medium';
                         var pct = (d && typeof d.score100 === 'number') ? d.score100 : 0;
                         var row = document.createElement('div');
-                        row.style.cssText = 'display:flex;justify-content:space-between;gap:12px;';
-                        // FIX-EG-TOAST-SEPARATOR (v1.2.91): Use middle-dot separator
-                        // (U+00B7) to match reporter.js badge style. Asterisk looked
-                        // like a CSS operator / garbled markup in the toast UI.
-                        row.innerHTML =
-                            '<span>Q' + slot + '</span>' +
-                            '<span style="color:' + col + ';font-weight:600;">' +
-                                lab + ' \u00b7 ' + pct + '%</span>';
+                        row.className = 'essayguard-toast-perq-row';
+                        var q = document.createElement('span');
+                        q.textContent = str('questionshort', {slot: slot});
+                        var val = document.createElement('span');
+                        val.className = 'essayguard-toast-perq-' + lvl;
+                        val.textContent = str('levelscore', {level: str('risk' + lvl), score: pct});
+                        row.appendChild(q);
+                        row.appendChild(val);
                         listEl.appendChild(row);
                     });
                     toast.appendChild(listEl);
@@ -1384,8 +1334,7 @@ define(['core/ajax'], function(Ajax) {
             document.body.appendChild(toast);
             setTimeout(function() {
                 if (toast.parentNode) {
-                    toast.style.transition = 'opacity 0.5s';
-                    toast.style.opacity = '0';
+                    toast.classList.add('essayguard-toast-hiding');
                     setTimeout(function() {
                         if (toast.parentNode) {
                             toast.parentNode.removeChild(toast);
@@ -1427,7 +1376,7 @@ define(['core/ajax'], function(Ajax) {
                 injectRiskBadge(result);
             }
             return result || null;
-        }).catch(function(err) {
+        }).catch(function() {
             return null;
         });
     };

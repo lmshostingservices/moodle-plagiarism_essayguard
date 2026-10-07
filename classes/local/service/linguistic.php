@@ -201,7 +201,7 @@ class linguistic {
             array_filter(
                 self::tokens(\core_text::strtolower($text)),
                 static fn($w) => (bool)preg_match('/[\p{L}\p{M}]/u', $w)
-                )
+            )
         );
         if (empty($words)) {
             return 0.0;
@@ -236,7 +236,7 @@ class linguistic {
             array_filter(
                 self::tokens(\core_text::strtolower($text)),
                 static fn($w) => (bool)preg_match('/[\p{L}\p{M}]/u', $w)
-                )
+            )
         );
         if (empty($words)) {
             return 0.0;

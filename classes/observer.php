@@ -100,81 +100,73 @@ class observer {
     /**
      * Handle mod_quiz attempt_submitted.
      *
+     * Scoring a quiz runs the analyser once per essay slot plus once for the attempt as
+     * a whole, so it is queued as an ad-hoc task instead of running inside the student's
+     * submit request. Badges show "pending" until the task has run.
+     *
      * @param \core\event\base $event The mod_quiz attempt_submitted event.
      * @return void
      */
     public static function on_quiz_attempt_submitted(\core\event\base $event): void {
-        global $DB;
-
         if (!self::is_active()) {
             return;
         }
 
         $cmid = (int)$event->contextinstanceid;
-
         if (!self::is_cm_active($cmid)) {
             return;
         }
 
-        /*
-         * V1.2.229 FIX-EG-OBSERVER-WRONG-USER: for a quiz attempt this matters more than
-         * for an assignment. \mod_quiz\event\attempt_submitted REQUIRES relateduserid -
-         * its validate_data() throws a coding_exception without it - because the attempt
-         * owner is not always the submitter. An OVERDUE attempt is auto-submitted by the
-         * quiz cron task, where $event->userid is the cron user, not the student. Every
-         * such attempt was therefore scored against the wrong user id, and the student's
-         * own record never appeared at all.
-         */
-        $userid  = (int)($event->relateduserid ?: $event->userid);
-        $context = \context_module::instance($cmid);
+        // The attempt owner, not the submitter: an overdue attempt is submitted by cron.
+        $userid = (int)($event->relateduserid ?: $event->userid);
 
-        // FIX-EG-ATTEMPTKEY (v1.2.81): since inject_tracker() now generates the key as
-        // 'qa_{quizattemptid}', the observer can reconstruct the exact same key from the
-        // event's objectid (the quiz attempt ID) — no user preference lookup needed.
-        // This eliminates the race where the preference was updated mid-attempt with a new
-        // sesskey()-derived key and the observer read the wrong one.
+        // Same key inject_tracker() uses on the attempt page.
         $quizattemptid = (int)$event->objectid;
-        if ($quizattemptid > 0) {
-            $attemptkey = 'qa_' . $quizattemptid;
-        } else {
-            $attemptkey = self::get_stored_attemptkey($userid, $cmid);
+        $attemptkey = $quizattemptid > 0 ? 'qa_' . $quizattemptid : self::get_stored_attemptkey($userid, $cmid);
+        if (trim($attemptkey) === '') {
+            return;
         }
 
-        $finaltext = self::get_quiz_essay_text($event->objectid);
+        \plagiarism_essayguard\task\score_attempt::queue($userid, $cmid, $attemptkey, $quizattemptid);
+    }
 
-        // FIX-EG-SERVER-TIMING (v1.2.126): Fetch quiz attempt timestart and timefinish
-        // so analyser::score_attempt() can compute server-side chars-per-second as a
-        // reliable fallback signal when JS tracker events are absent. Without this, a
-        // student who copy-pastes and immediately submits (before the 5-second periodic
-        // flush fires) appears identical to an honest typist — both produce paste_events=0
-        // — and is wrongly scored MEDIUM via the linguistic fallback.
-        $attempttimestart  = 0;
+    /**
+     * Score a submitted quiz attempt: every essay slot, then the aggregate.
+     *
+     * Called from the score_attempt ad-hoc task.
+     *
+     * @param int $quizattemptid The quiz_attempts id.
+     * @param int $userid The attempt owner.
+     * @param int $cmid The quiz course module id.
+     * @param int $contextid The quiz module context id.
+     * @param string $attemptkey The typing session key.
+     * @return void
+     */
+    public static function score_quiz_attempt(
+        int $quizattemptid,
+        int $userid,
+        int $cmid,
+        int $contextid,
+        string $attemptkey
+    ): void {
+        global $DB;
+
+        // Attempt start and finish feed the server-side typing-speed signal.
+        $attempttimestart = 0;
         $attempttimefinish = 0;
-        if ($quizattemptid > 0) {
-            $atrow = $DB->get_record('quiz_attempts', ['id' => $quizattemptid], 'timestart,timefinish');
-            if ($atrow) {
-                $attempttimestart  = (int)$atrow->timestart;
-                $attempttimefinish = (int)$atrow->timefinish;
-            }
+        $atrow = $DB->get_record('quiz_attempts', ['id' => $quizattemptid], 'timestart, timefinish');
+        if ($atrow) {
+            $attempttimestart = (int)$atrow->timestart;
+            $attempttimefinish = (int)$atrow->timefinish;
         }
 
-        // FIX-EG-PERQ-FIRST (v1.2.125): Score per-question BEFORE aggregate.
-        //
-        // analyser::score_attempt() FIX-EG-AGG-PERQ-CONSISTENCY elevates the aggregate
-        // score to match the maximum per-question riskscore when no behavioural events
-        // were captured (events_empty_for_scoring). That fix requires per-question DB
-        // records to already exist when the aggregate is scored — so we must score
-        // per-question first.
-        //
-        // Previous order (aggregate first) meant per-question records were always absent
-        // during aggregate scoring, so the elevation could never fire and the gradebook
-        // aggregate stayed at 0% even when per-question records showed a higher risk.
-        $slottexts = self::get_quiz_essay_texts_by_slot($event->objectid);
+        // Per-question first: the aggregate pass reads the per-question records.
+        $slottexts = self::get_quiz_essay_texts_by_slot($quizattemptid);
         foreach ($slottexts as $slot => $slottext) {
             self::do_score(
                 $userid,
                 $cmid,
-                $context->id,
+                $contextid,
                 $attemptkey,
                 $slottext,
                 (int)$slot,
@@ -183,12 +175,11 @@ class observer {
             );
         }
 
-        // Aggregate score (qslot = 0) — scored LAST so FIX-EG-AGG-PERQ-CONSISTENCY
-        // can read the per-question records written above.
+        $finaltext = self::get_quiz_essay_text($quizattemptid);
         self::do_score(
             $userid,
             $cmid,
-            $context->id,
+            $contextid,
             $attemptkey,
             $finaltext,
             0,
@@ -243,10 +234,11 @@ class observer {
         unset_config('enabled_cm_' . $cmid, 'plagiarism_essayguard');
         $DB->delete_records_select(
             'user_preferences',
-            'name = :akname OR name = :lsname',
+            'name = :akname OR name = :lsname OR name = :finname',
             [
                 'akname' => 'essayguard_ak_' . $cmid,
                 'lsname' => 'essayguard_lastscore_' . $cmid,
+                'finname' => 'essayguard_fin_' . $cmid,
             ]
         );
     }
@@ -606,14 +598,8 @@ class observer {
      * @return bool True when the observer should go on to score the submission.
      */
     private static function is_active(): bool {
-        // FIX-EG-ENABLED-CHECK-INCONSISTENT (v1.2.94): get_config() returns PHP false
-        // when the key has never been saved (fresh install where admin hasn't submitted
-        // the settings page yet). !false = true → this condition fired on fresh installs,
-        // making the observer skip ALL scoring. inject_tracker() was fixed in v1.2.88
-        // (FIX-EG-GLOBAL-ENABLED-MISSING) with the same logic — applying the same fix here.
-        // Treat missing key as enabled; only skip when the key EXISTS and is explicitly falsy.
-        $globalenabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($globalenabled !== false && empty($globalenabled)) {
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             return false;
         }
         if (during_initial_install()) {

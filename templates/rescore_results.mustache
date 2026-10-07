@@ -1,0 +1,77 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/rescore_results
+
+    Summary and per-attempt results of one rescore batch.
+
+    Context variables required for this template:
+    * scored - int - Attempts scored in this batch
+    * skipped - int - Attempts skipped because they already had data
+    * notext - int - Attempts with no essay text
+    * errors - int - Attempts that failed to score
+    * remaining - int - Attempts left for a later batch
+    * hasrows - bool - Whether there are detail rows
+    * rows - array - Detail rows: name, qaid, detail, statusclass
+
+    Example context (json):
+    {
+        "scored": 1,
+        "skipped": 0,
+        "notext": 1,
+        "errors": 0,
+        "remaining": 30,
+        "hasrows": true,
+        "rows": [
+            {"name": "Ann Smith", "qaid": 12, "detail": "MEDIUM 48% (Q1, Q2 + aggregate)", "statusclass": "eg-rescore-result-medium"},
+            {"name": "Bob Jones", "qaid": 11, "detail": "No essay text found", "statusclass": "eg-rescore-result-notext"}
+        ]
+    }
+}}
+<div class="alert alert-success" role="status">
+    <strong>{{#str}}rescore_complete, plagiarism_essayguard{{/str}}</strong>
+    {{#str}}rescore_summary, plagiarism_essayguard, { "scored": {{scored}}, "skipped": {{skipped}}, "notext": {{notext}}, "errors": {{errors}} }{{/str}}
+</div>
+
+{{#remaining}}
+<div class="alert alert-warning" role="status">
+    {{#pix}}i/warning, core{{/pix}}
+    <strong>{{#str}}rescore_remaining, plagiarism_essayguard, {{remaining}}{{/str}}</strong>
+    {{#str}}rescore_batchnote, plagiarism_essayguard{{/str}}
+</div>
+{{/remaining}}
+
+{{#hasrows}}
+<table class="table table-sm eg-rescore-table">
+    <thead>
+        <tr>
+            <th scope="col">{{#str}}rescore_colstudent, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}rescore_attemptid, plagiarism_essayguard{{/str}}</th>
+            <th scope="col">{{#str}}rescore_colresult, plagiarism_essayguard{{/str}}</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{#rows}}
+        <tr>
+            <td>{{name}}</td>
+            <td class="eg-muted eg-ts">{{qaid}}</td>
+            <td class="eg-rescore-result {{statusclass}}">{{detail}}</td>
+        </tr>
+        {{/rows}}
+    </tbody>
+</table>
+{{/hasrows}}

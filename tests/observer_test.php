@@ -193,6 +193,13 @@ final class observer_test extends \advanced_testcase {
 
         observer::on_quiz_attempt_submitted($event);
 
+        // Scoring is queued, not done inside the submit request.
+        $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $student->id]));
+        $this->assertTrue(\plagiarism_essayguard\task\score_attempt::is_pending((int)$act['cm']->id, (int)$student->id));
+        $this->runAdhocTasks(\plagiarism_essayguard\task\score_attempt::class);
+        $this->resetDebugging();
+        $this->assertFalse(\plagiarism_essayguard\task\score_attempt::is_pending((int)$act['cm']->id, (int)$student->id));
+
         $this->assertGreaterThan(0, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $student->id]));
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $teacher->id]));
     }
@@ -228,6 +235,7 @@ final class observer_test extends \advanced_testcase {
         $this->add_typing_stream($student->id, $act['cm']->id, $act['context']->id, $key, 40, 1);
 
         observer::on_quiz_attempt_submitted($event);
+        $this->runAdhocTasks(\plagiarism_essayguard\task\score_attempt::class);
         // The per-question pass logs its untagged-paste search at developer level; that
         // is analyser's diagnostic, not something this test is asserting about.
         $this->resetDebugging();
@@ -267,7 +275,7 @@ final class observer_test extends \advanced_testcase {
                 $parts['assign'],
                 $parts['submission'],
                 true
-                )
+            )
         );
         $this->assertDebuggingCalled();
 
@@ -310,7 +318,7 @@ final class observer_test extends \advanced_testcase {
                 $parts['assign'],
                 $parts['submission'],
                 true
-                )
+            )
         );
 
         $this->assertSame(1, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $student->id]));
@@ -341,7 +349,7 @@ final class observer_test extends \advanced_testcase {
                 $parts['assign'],
                 $parts['submission'],
                 true
-                )
+            )
         );
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc'));
@@ -372,25 +380,25 @@ final class observer_test extends \advanced_testcase {
                 $parts['assign'],
                 $parts['submission'],
                 true
-                )
+            )
         );
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc'));
     }
 
     /**
-     * A never-saved "enabled" setting reads as bool false and must mean ENABLED, which
-     * is the state of every fresh install. Pinning it here because `!$enabled` on a
-     * never-saved key has produced this defect in five separate files in this plugin.
+     * Essay Guard is installed switched off: with the site switch at its installed value
+     * nothing is scored, even on an activity whose checkbox is ticked.
      *
      * @return void
      */
-    public function test_never_saved_enabled_setting_still_scores(): void {
+    public function test_installed_default_does_not_score(): void {
         global $DB;
         $this->resetAfterTest();
+        set_config('enableplagiarism', 1);
         set_config('unlock_cache_result', 1, 'plagiarism_essayguard');
         set_config('unlock_cache_time', time(), 'plagiarism_essayguard');
-        $this->assertFalse(get_config('plagiarism_essayguard', 'enabled'));
+        $this->assertSame('0', get_config('plagiarism_essayguard', 'enabled'));
 
         $act     = $this->create_essayguard_assign();
         $student = $this->getDataGenerator()->create_and_enrol($act['course'], 'student');
@@ -405,10 +413,27 @@ final class observer_test extends \advanced_testcase {
                 $parts['assign'],
                 $parts['submission'],
                 true
-                )
+            )
         );
 
-        $this->assertSame(1, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $student->id]));
+        $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc', ['userid' => $student->id]));
+    }
+
+    /**
+     * An activity with no saved Essay Guard setting (created before the plugin was
+     * installed, or restored from a backup without the setting) is not monitored.
+     *
+     * @return void
+     */
+    public function test_activity_with_no_saved_setting_is_not_monitored(): void {
+        $this->resetAfterTest();
+        $this->enable_essayguard();
+        $this->set_platform_settings(false, false);
+
+        $act = $this->create_essayguard_assign();
+        unset_config('enabled_cm_' . $act['cm']->id, 'plagiarism_essayguard');
+
+        $this->assertFalse(plagiarism_essayguard_is_cm_active((int)$act['cm']->id));
     }
 
     /**
@@ -434,13 +459,12 @@ final class observer_test extends \advanced_testcase {
         $this->setUser($student);
 
         $discussion = $this->getDataGenerator(
-            )->get_plugin_generator('mod_forum')->create_discussion([
+        )->get_plugin_generator('mod_forum')->create_discussion([
                 'course'  => $course->id,
                 'forum'   => $forum->id,
                 'userid'  => $student->id,
                 'message' => '<p>A forum contribution of a plausible length.</p>',
-                ]
-        );
+                ]);
         $post = $DB->get_record('forum_posts', ['discussion' => $discussion->id], '*', MUST_EXIST);
 
         $this->set_attemptkey_preference($student->id, $cm->id, 'akforum');

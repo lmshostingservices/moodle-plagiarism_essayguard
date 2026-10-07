@@ -136,6 +136,7 @@ final class task_test extends \advanced_testcase {
     public function test_cleanup_defaults_to_ninety_days_when_never_saved(): void {
         global $DB;
         $this->resetAfterTest();
+        unset_config('retentiondays', 'plagiarism_essayguard');
         $this->assertFalse(get_config('plagiarism_essayguard', 'retentiondays'));
 
         $old    = $this->event_received_at(time() - (91 * DAYSECS));
@@ -181,22 +182,17 @@ final class task_test extends \advanced_testcase {
     }
 
     /**
-     * REGRESSION (v1.2.224 FIX-EG-RESCOREPENDING-NEVERRUNS): a never-saved "enabled"
-     * setting reads as bool false, and every other component in this plugin treats that
-     * as ENABLED because it is the state of every fresh install. This task once read it
-     * as disabled and returned immediately on every run, forever — so the one component
-     * that exists to repair attempts whose browser never reached finalize_attempt was the
-     * one component the default configuration switched off.
+     * Essay Guard is installed switched off, so on a fresh install the task does nothing.
      *
      * @return void
      */
-    public function test_rescore_pending_runs_on_a_fresh_install(): void {
+    public function test_rescore_pending_does_nothing_on_a_fresh_install(): void {
         $this->resetAfterTest();
-        $this->assertFalse(get_config('plagiarism_essayguard', 'enabled'));
+        $this->assertSame('0', get_config('plagiarism_essayguard', 'enabled'));
 
         $output = $this->run_task(new rescore_pending());
 
-        $this->assertStringNotContainsString('plugin disabled', $output);
+        $this->assertStringContainsString('plugin disabled', $output);
     }
 
     /**

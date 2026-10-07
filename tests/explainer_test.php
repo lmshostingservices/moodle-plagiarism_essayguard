@@ -213,63 +213,105 @@ final class explainer_test extends \advanced_testcase {
     }
 
     /**
+     * The comparison against the student's own history, as the analyser stores it.
+     *
+     * BASELINE-EG-WELFORD (v1.4.0): explain() no longer compares the submission against
+     * the fingerprint record's point estimates with its own tolerances. It explains the
+     * metrics fingerprint::comparative_deviation() reported as drivers, from the z-scores
+     * stored in the metrics array, so a sentence appears only for a comparison that
+     * actually contributed to the score.
+     *
+     * @param string $name     The fingerprint metric name, e.g. 'wpm'.
+     * @param float  $observed This submission's value.
+     * @param float  $usual    The student's running mean.
+     * @param float  $z        The z-score against the student's own spread.
+     * @param bool   $driver   Whether the metric passed the floor and drove the score.
+     * @return array The baseline_* metric keys.
+     */
+    private static function comparison(
+        string $name,
+        float $observed,
+        float $usual,
+        float $z,
+        bool $driver = true
+    ): array {
+        return [
+            'baseline_drivers' => $driver ? [$name] : [],
+            'baseline_detail'  => [
+                $name => ['z' => $z, 'mean' => $usual, 'sd' => 1.0, 'observed' => $observed, 'n' => 12],
+            ],
+            'baseline_samples' => 12,
+        ];
+    }
+
+    /**
      * Baseline comparisons add their own explanations on top of the rule hits.
      *
      * @return void
      */
     public function test_baseline_comparisons(): void {
+        // One: the speed comparison alone (there is no absolute speed rule at 45 wpm).
+        $this->assertCount(
+            1,
+            explainer::explain(
+                ['average_wpm' => 45.0] + self::comparison('wpm', 45.0, 20.0, 5.0) + self::baseline(),
+                'high'
+            )
+        );
+
+        // Two: the absolute low-backspace rule and the comparison with the student's usual rate.
+        $this->assertCount(
+            2,
+            explainer::explain(
+                ['backspace_ratio' => 0.01]
+                    + self::comparison('backspace_ratio', 0.01, 0.10, 4.5)
+                    + self::baseline(),
+                'high'
+            )
+        );
+
+        // Two: the absolute medium-uniformity rule and the comparison.
+        $this->assertCount(
+            2,
+            explainer::explain(
+                ['sentence_variance' => 7.0]
+                    + self::comparison('sentence_variance', 7.0, 20.0, 3.0)
+                    + self::baseline(),
+                'high'
+            )
+        );
+
+        // The same metrics with no comparison produce only the absolute rule.
+        $this->assertCount(
+            1,
+            explainer::explain(['sentence_variance' => 7.0] + self::baseline(), 'high')
+        );
+
+        // A comparison that was measured but stayed under the z floor is not a driver and
+        // is not described: it contributed nothing to the score.
+        $this->assertCount(
+            1,
+            explainer::explain(
+                ['sentence_variance' => 7.0]
+                    + self::comparison('sentence_variance', 7.0, 8.0, 0.5, false)
+                    + self::baseline(),
+                'high'
+            )
+        );
+
+        // A fingerprint record alone no longer produces a sentence. Before v1.4.0 this
+        // object was compared with a hand-written 1.8x tolerance, independently of
+        // whether the comparison had scored anything; now only the analyser's own
+        // drivers are explained, so this falls through to the band fallback.
         $fasterthanbaseline = (object)[
             'baseline_wpm'                => 20.0,
             'baseline_backspace_ratio'    => 0.10,
             'baseline_sentence_variance'  => 20.0,
         ];
-        $this->assertCount(
-            1,
-            explainer::explain(
-                ['average_wpm' => 45.0] + self::baseline(),
-                'high',
-                $fasterthanbaseline
-                )
-        );
-
-        $fewercorrections = (object)[
-            'baseline_wpm'                => 0.0,
-            'baseline_backspace_ratio'    => 0.10,
-            'baseline_sentence_variance'  => 20.0,
-        ];
-        // Two: the absolute low-backspace rule and the below-baseline comparison.
-        $this->assertCount(
-            2,
-            explainer::explain(
-                ['backspace_ratio' => 0.01] + self::baseline(),
-                'high',
-                $fewercorrections
-                )
-        );
-
-        $moreuniform = (object)[
-            'baseline_wpm'                => 0.0,
-            'baseline_backspace_ratio'    => 0.0,
-            'baseline_sentence_variance'  => 20.0,
-        ];
-        // Two: the absolute medium-uniformity rule and the below-baseline comparison.
-        $this->assertCount(
-            2,
-            explainer::explain(
-                ['sentence_variance' => 7.0] + self::baseline(),
-                'high',
-                $moreuniform
-                )
-        );
-
-        // The same metrics with no baseline record produce only the absolute rules.
-        $this->assertCount(
-            1,
-            explainer::explain(
-                ['sentence_variance' => 7.0] + self::baseline(),
-                'high',
-                null
-                )
+        $metrics = ['average_wpm' => 45.0] + self::baseline();
+        $this->assertNotSame(
+            explainer::explain($metrics, 'low', $fasterthanbaseline),
+            explainer::explain($metrics, 'high', $fasterthanbaseline)
         );
     }
 
@@ -375,64 +417,94 @@ final class explainer_test extends \advanced_testcase {
     }
 
     /**
-     * Regression test for FIX-EG-BASELINE-UNEXPLAINED (v1.2.225).
+     * Regression test for FIX-EG-BASELINE-UNEXPLAINED (v1.2.225), on the v1.4.0 baseline.
      *
-     * fingerprint::deviation_score() averages five components for up to 15 points -
-     * words per minute, backspace ratio, sentence variance, typing-rhythm entropy and
-     * mean pause length - and only the first three had an explainer rule. A student whose
-     * rhythm or pausing had shifted sharply from their own baseline was scored for it and
-     * told nothing about it. That is the worst place for this gap: a comparison against
-     * the student's own past work is the most persuasive evidence the plugin produces and
-     * the hardest for a teacher to guess at.
+     * The comparison against a student's own history covers typing-rhythm entropy and
+     * mean pause length as well as speed, corrections and sentence variance, and a
+     * student whose rhythm or pausing departs from their own pattern must be told so. That
+     * is the worst place for a gap: a comparison against the student's own past work is
+     * the most persuasive evidence the plugin produces and the hardest for a teacher to
+     * guess at.
      *
-     * Both directions of both components are asserted, because a deviation is reportable
-     * either way and only one direction is the suspicious one.
+     * Since BASELINE-EG-WELFORD (v1.4.0) the comparison arrives as z-scores in the metrics
+     * array rather than as a fingerprint object. Both directions of both components are
+     * asserted, because comparative_deviation() measures |z| and reports a departure
+     * either way, so the sentence must not assume which way it went: it has to quote the
+     * value this submission measured.
      *
      * @dataProvider baseline_component_provider
-     * @param array $metrics  The metrics for this attempt.
-     * @param array $baseline The student's stored baseline values.
-     * @param bool  $explains Whether a deviation sentence is expected.
+     * @param array       $metrics    The metrics for this attempt.
+     * @param array       $comparison The baseline_* keys the analyser stored for it.
+     * @param string|null $observed   The formatted observed value the sentence must quote,
+     *                                or null when no sentence is expected.
      * @return void
      */
     public function test_every_baseline_component_can_be_explained(
         array $metrics,
-        array $baseline,
-        bool $explains
+        array $comparison,
+        ?string $observed
     ): void {
-        $result = explainer::explain($metrics + self::quiet_baseline_metrics(), 'high', (object)$baseline);
+        $all    = $metrics + $comparison + self::quiet_baseline_metrics();
+        $result = explainer::explain($all, 'high');
         // A baseline sentence is a rule, so it is band-independent; the fallback is not.
-        $low = explainer::explain($metrics + self::quiet_baseline_metrics(), 'low', (object)$baseline);
-        if ($explains) {
+        $low = explainer::explain($all, 'low');
+        if ($observed !== null) {
             $this->assertSame($low, $result);
+            $this->assertCount(1, $result);
+            $this->assertStringContainsString($observed, $result[0]);
         } else {
             $this->assertNotSame($low, $result);
         }
     }
 
     /**
-     * The two components that had no rule, in both directions, plus the no-change control.
+     * The rhythm and pause components, in both directions, plus the no-change controls.
      *
-     * Thresholds mirror fingerprint::deviation_score()'s own tolerances: 0.3 relative for
-     * entropy, 0.5 for pause mean.
+     * The quiet metrics fire no absolute rule, and the entropy values stay at or above
+     * 0.5 so the absolute rhythm rules cannot answer for the comparison.
      *
-     * @return array[] Each dataset: metrics, baseline, whether a sentence is expected.
+     * @return array[] Each dataset: metrics, baseline keys, the value the sentence quotes.
      */
     public static function baseline_component_provider(): array {
-        $bl = ['baseline_entropy' => 0.9, 'baseline_pause_mean' => 1000.0];
+        $steady = ['entropy_score' => 0.9, 'pause_mean' => 1000.0];
         return [
-            'rhythm smoother than baseline' => [['entropy_score' => 0.3, 'pause_mean' => 1000.0], $bl, true],
-            'rhythm rougher than baseline'  => [['entropy_score' => 0.9, 'pause_mean' => 1000.0],
-                                                ['baseline_entropy' => 0.3, 'baseline_pause_mean' => 1000.0], true],
-            'rhythm unchanged'              => [['entropy_score' => 0.9, 'pause_mean' => 1000.0], $bl, false],
-            'pauses shorter than baseline'  => [['entropy_score' => 0.9, 'pause_mean' => 300.0], $bl, true],
-            'pauses longer than baseline'   => [['entropy_score' => 0.9, 'pause_mean' => 4000.0], $bl, true],
-            'pauses unchanged'              => [['entropy_score' => 0.9, 'pause_mean' => 1000.0], $bl, false],
-            // Values that WOULD deviate against a baseline, with no baseline recorded.
-            // Entropy is deliberately 0.9 here: at 0.3 the absolute medium-entropy rule
-            // fires on its own, which would make this dataset pass for the wrong reason.
-            'no baseline recorded for either'
-                => [['entropy_score' => 0.9, 'pause_mean' => 300.0],
-                    ['baseline_entropy' => 0.0, 'baseline_pause_mean' => 0.0], false],
+            'rhythm smoother than baseline' => [
+                ['entropy_score' => 0.6, 'pause_mean' => 1000.0],
+                self::comparison('entropy', 0.6, 0.9, 6.0),
+                '0.60',
+            ],
+            'rhythm rougher than baseline' => [
+                $steady,
+                self::comparison('entropy', 0.9, 0.6, 6.0),
+                '0.90',
+            ],
+            'rhythm unchanged' => [
+                $steady,
+                self::comparison('entropy', 0.9, 0.9, 0.0, false),
+                null,
+            ],
+            'pauses shorter than baseline' => [
+                ['entropy_score' => 0.9, 'pause_mean' => 300.0],
+                self::comparison('pause_mean', 300.0, 1000.0, 3.5),
+                '300',
+            ],
+            'pauses longer than baseline' => [
+                ['entropy_score' => 0.9, 'pause_mean' => 4000.0],
+                self::comparison('pause_mean', 4000.0, 1000.0, 15.0),
+                '4,000',
+            ],
+            'pauses unchanged' => [
+                $steady,
+                self::comparison('pause_mean', 1000.0, 1000.0, 0.0, false),
+                null,
+            ],
+            // Values that WOULD deviate, with no baseline established: comparative_deviation()
+            // returns no drivers and no detail until enough submissions are behind it.
+            'no baseline recorded for either' => [
+                ['entropy_score' => 0.9, 'pause_mean' => 300.0],
+                ['baseline_drivers' => [], 'baseline_detail' => [], 'baseline_samples' => 0],
+                null,
+            ],
         ];
     }
 

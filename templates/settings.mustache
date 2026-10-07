@@ -1,0 +1,79 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/settings
+
+    Essay Guard site settings page: licence status, unlock action and settings form.
+
+    Context variables required for this template:
+    * enableplagiarismoff - Core "Enable plagiarism plugins" is off.
+    * state - nocreds, unknown, unlocked or locked.
+    * isnocreds, isunknown, isunlocked, islocked - Booleans for the state.
+    * agemin - Minutes since the status was last checked.
+    * canunlock - Show the unlock (purchase) button.
+    * cancheck - Show the "check status" button.
+    * actionurl - This page's URL.
+    * sesskey - Session key.
+    * unlockcredits - Credits the unlock costs.
+    * unlockprice - The same price in USD.
+    * form - Rendered settings form HTML.
+
+    Example context (json):
+    {
+        "enableplagiarismoff": false,
+        "state": "locked",
+        "islocked": true,
+        "agemin": 3,
+        "canunlock": true,
+        "cancheck": true,
+        "actionurl": "https://example.com/plagiarism/essayguard/settings.php",
+        "sesskey": "abc123",
+        "unlockcredits": 50,
+        "unlockprice": 5,
+        "form": "<form></form>"
+    }
+}}
+{{#enableplagiarismoff}}
+    <div class="alert alert-warning" role="alert">{{#str}}notice_enableplagiarism, plagiarism_essayguard{{/str}}</div>
+{{/enableplagiarismoff}}
+
+<div class="eg-settings-status alert {{#isunlocked}}alert-success{{/isunlocked}}{{#islocked}}alert-danger{{/islocked}}{{#isnocreds}}alert-warning{{/isnocreds}}{{#isunknown}}alert-secondary{{/isunknown}}" role="status">
+    {{#isunlocked}}{{#str}}status_unlocked, plagiarism_essayguard, {{agemin}}{{/str}}{{/isunlocked}}
+    {{#islocked}}{{#str}}status_locked, plagiarism_essayguard, {{agemin}}{{/str}}{{/islocked}}
+    {{#isnocreds}}{{#str}}status_nocreds, plagiarism_essayguard{{/str}}{{/isnocreds}}
+    {{#isunknown}}{{#str}}status_unknown, plagiarism_essayguard{{/str}}{{/isunknown}}
+
+    <div class="eg-settings-actions">
+        {{#cancheck}}
+            <form action="{{actionurl}}" method="post" class="d-inline-block">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <input type="hidden" name="action" value="testconnection">
+                <button type="submit" class="btn btn-secondary btn-sm">{{#str}}testconnection, plagiarism_essayguard{{/str}}</button>
+            </form>
+        {{/cancheck}}
+        {{#canunlock}}
+            <form action="{{actionurl}}" method="post" class="d-inline-block">
+                <input type="hidden" name="sesskey" value="{{sesskey}}">
+                <input type="hidden" name="action" value="unlock">
+                <button type="submit" class="btn btn-primary btn-sm">{{#str}}unlockbutton, plagiarism_essayguard{{/str}}</button>
+            </form>
+            <small class="eg-settings-price">{{#str}}unlockprice, plagiarism_essayguard, { "credits": {{unlockcredits}}, "price": {{unlockprice}} }{{/str}}</small>
+        {{/canunlock}}
+    </div>
+</div>
+
+{{{form}}}

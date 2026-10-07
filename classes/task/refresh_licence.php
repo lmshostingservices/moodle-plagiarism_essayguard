@@ -17,20 +17,11 @@
 namespace plagiarism_essayguard\task;
 
 /**
- * v1.2.219: Refresh the cached lms-labs.com licence and platform-settings answers.
+ * Refresh the cached lms-labs.com licence status and platform settings.
  *
- * WHY THIS TASK EXISTS: check_unlock() (10 s timeout, chaining into auto_unlock()'s
- * further 15 s) and get_platform_settings() (5 s) used to be performed inline by
- * whichever page request happened to find the 30-minute cache expired. The callers
- * are is_cm_active() — every grading-page render — and observer::is_active(), which
- * runs inside quiz submission. That put up to 25 s of third-party network latency in
- * the middle of a student pressing "Submit all and finish", and because every worker's
- * cache expires at the same moment, it stampeded across a whole cohort at once.
- *
- * Those two functions are now cache-only on the request path. This task is the only
- * caller that passes $allowfetch = true (besides the admin settings page, where the
- * admin explicitly asked for a live check), and it runs every 15 minutes so the
- * 30-minute cache never goes stale under normal operation.
+ * Request paths only read these cached answers; this task (every 15 minutes) and an
+ * explicit administrator action on the settings page are the only live checks. The
+ * task only checks the licence status. It never purchases an unlock.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
@@ -58,10 +49,8 @@ class refresh_licence extends \core\task\scheduled_task {
         global $CFG;
         require_once($CFG->dirroot . '/plagiarism/essayguard/lib.php');
 
-        // Only run when the plugin is globally enabled. get_config() returns false for a
-        // never-saved key, which this plugin treats as enabled (see is_cm_active()).
-        $enabled = get_config('plagiarism_essayguard', 'enabled');
-        if ($enabled !== false && empty($enabled)) {
+        // Site switch: off until an administrator enables Essay Guard.
+        if (!\plagiarism_essayguard_is_enabled()) {
             mtrace('Essay Guard refresh_licence: plugin disabled — skipping.');
             return;
         }
