@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.4 - 2026-10-09
+
+**Student notice matches badge visibility**
+
+Version: `2026100902`. No database changes; no upgrade step.
+
+- Students see the risk badge for their own submission (never another student's);
+  teachers and administrators see every badge with links to the detail page and class
+  report. This is now stated in the notice shown to students, which previously said
+  only teachers and administrators could see the result.
+- New test `tests/badge_visibility_test.php` pins who can see a badge.
+
 ## 1.4.3 - 2026-10-09
 
 **Moodle 5.3 support**
