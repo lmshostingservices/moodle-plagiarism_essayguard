@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.3 - 2026-10-09
+
+**Moodle 5.3 support**
+
+Version: `2026100901`. No code or database changes; no upgrade step.
+
+- Declares support for Moodle 5.3 (`$plugin->supported = [404, 503]`). Without it, Moodle 5.3
+  shows administrators "This plugin does not support Moodle 503".
+- Tested on Moodle 5.3 with PostgreSQL 17: fresh install, upgrade from 2026030500, full
+  PHPUnit suite (no deprecations, notices or warnings) and a browser walkthrough.
+
 ## 1.4.2 - 2026-10-09
 
 **Plugins directory checklist pass**
