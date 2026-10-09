@@ -29,9 +29,10 @@ use plagiarism_essayguard\local\service\fingerprint;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\fingerprint
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\fingerprint::class)]
 final class fingerprint_test extends \advanced_testcase {
     /** @var int The student the fixtures belong to. */
-    const USERID = 4242;
+    public const USERID = 4242;
 
     /**
      * A plausible set of behavioural metrics.

@@ -51,13 +51,13 @@
     <div class="alert alert-warning" role="alert">{{#str}}notice_enableplagiarism, plagiarism_essayguard{{/str}}</div>
 {{/enableplagiarismoff}}
 
-<div class="eg-settings-status alert {{#isunlocked}}alert-success{{/isunlocked}}{{#islocked}}alert-danger{{/islocked}}{{#isnocreds}}alert-warning{{/isnocreds}}{{#isunknown}}alert-secondary{{/isunknown}}" role="status">
+<div class="essayguard-settings-status alert {{#isunlocked}}alert-success{{/isunlocked}}{{#islocked}}alert-danger{{/islocked}}{{#isnocreds}}alert-warning{{/isnocreds}}{{#isunknown}}alert-secondary{{/isunknown}}" role="status">
     {{#isunlocked}}{{#str}}status_unlocked, plagiarism_essayguard, {{agemin}}{{/str}}{{/isunlocked}}
     {{#islocked}}{{#str}}status_locked, plagiarism_essayguard, {{agemin}}{{/str}}{{/islocked}}
     {{#isnocreds}}{{#str}}status_nocreds, plagiarism_essayguard{{/str}}{{/isnocreds}}
     {{#isunknown}}{{#str}}status_unknown, plagiarism_essayguard{{/str}}{{/isunknown}}
 
-    <div class="eg-settings-actions">
+    <div class="essayguard-settings-actions">
         {{#cancheck}}
             <form action="{{actionurl}}" method="post" class="d-inline-block">
                 <input type="hidden" name="sesskey" value="{{sesskey}}">
@@ -71,7 +71,7 @@
                 <input type="hidden" name="action" value="unlock">
                 <button type="submit" class="btn btn-primary btn-sm">{{#str}}unlockbutton, plagiarism_essayguard{{/str}}</button>
             </form>
-            <small class="eg-settings-price">{{#str}}unlockprice, plagiarism_essayguard, { "credits": {{unlockcredits}}, "price": {{unlockprice}} }{{/str}}</small>
+            <small class="essayguard-settings-price">{{#str}}unlockprice, plagiarism_essayguard, { "credits": {{unlockcredits}}, "price": {{unlockprice}} }{{/str}}</small>
         {{/canunlock}}
     </div>
 </div>

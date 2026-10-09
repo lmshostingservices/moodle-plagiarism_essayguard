@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * plagiarism_essayguard file.
+ * Scheduled task definitions for Essay Guard.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs

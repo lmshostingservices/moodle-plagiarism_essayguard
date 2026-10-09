@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.2 - 2026-10-09
+
+**Plugins directory checklist pass**
+
+Version: `2026100900`. No database changes; no upgrade step.
+
+- Tested on Moodle 4.5 (PostgreSQL 16) and Moodle 5.2 (MariaDB 10.11): fresh install,
+  upgrade from 2026030500, schema repair, full PHPUnit suite, and a browser walkthrough.
+- PHPUnit metadata added as attributes (PHPUnit 11 on Moodle 5.x) alongside the
+  docblock annotations (PHPUnit 9 on Moodle 4.4/4.5); no deprecations on 5.2.
+- Test uses `cmactions::duplicate()` on Moodle 5.2, `duplicate_module()` before.
+- All CSS classes namespaced `essayguard-` (were `eg-`).
+- Language strings no longer built by concatenating fragments around links; links are
+  passed as `{$a}`. Stale strings about automatic unlock removed. Strings sorted.
+- Direct `$_SERVER` access replaced with `data_submitted()` and `$PAGE->url`.
+- Class constants declare visibility; file docblocks describe each file.
+- Hard-coded HIGH/MEDIUM/NOT wording in tooltips changed to normal case.
+
 ## 1.4.1 - 2026-10-08
 
 **Moodle Plugins Directory review fixes**

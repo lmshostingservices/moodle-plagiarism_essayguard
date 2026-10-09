@@ -44,7 +44,7 @@ use core_privacy\local\request\writer;
  */
 class provider implements core_userlist_provider, metadata_provider, plugin_provider, user_preference_provider {
     /** @var array Preference name prefixes (suffixed with a cmid) => privacy description string. */
-    const PREFERENCES = [
+    public const PREFERENCES = [
         'essayguard_ak_' => 'privacy:metadata:preference:essayguard_ak',
         'essayguard_lastscore_' => 'privacy:metadata:preference:essayguard_lastscore',
         'essayguard_fin_' => 'privacy:metadata:preference:essayguard_fin',

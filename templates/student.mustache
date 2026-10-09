@@ -103,15 +103,15 @@
         "questions": []
     }
 }}
-<div class="eg-student" data-region="plagiarism_essayguard-student">
-    <p class="eg-student-back">
+<div class="essayguard-student" data-region="plagiarism_essayguard-student">
+    <p class="essayguard-student-back">
         <a href="{{backurl}}" class="btn btn-sm btn-secondary">&larr; {{#str}}backtoclassreport, plagiarism_essayguard{{/str}}</a>
     </p>
 
-    <div class="eg-student-header">
+    <div class="essayguard-student-header">
         <div>
-            <h2 class="eg-student-title">{{heading}}</h2>
-            <p class="eg-student-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
+            <h2 class="essayguard-student-title">{{heading}}</h2>
+            <p class="essayguard-student-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
         </div>
     </div>
 
@@ -121,34 +121,34 @@
 
     {{#hasdata}}
         {{#overall}}
-        <div class="eg-student-scorecard eg-student-level-{{level}}">
-            <div class="eg-student-scorebox">
-                <div class="eg-student-bignum">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}</div>
-                <div class="eg-student-outof">{{#str}}student_outof100, plagiarism_essayguard{{/str}}</div>
+        <div class="essayguard-student-scorecard essayguard-student-level-{{level}}">
+            <div class="essayguard-student-scorebox">
+                <div class="essayguard-student-bignum">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}</div>
+                <div class="essayguard-student-outof">{{#str}}student_outof100, plagiarism_essayguard{{/str}}</div>
             </div>
-            <div class="eg-student-scoremain">
-                <div class="eg-student-risklabel">{{label}}</div>
-                <div class="eg-student-bar">
-                    <div class="eg-student-barfill" style="width: {{barwidth}}%;"></div>
+            <div class="essayguard-student-scoremain">
+                <div class="essayguard-student-risklabel">{{label}}</div>
+                <div class="essayguard-student-bar">
+                    <div class="essayguard-student-barfill" style="width: {{barwidth}}%;"></div>
                 </div>
-                <div class="eg-student-meta">{{lastscored}}</div>
+                <div class="essayguard-student-meta">{{lastscored}}</div>
             </div>
-            <div class="eg-student-legend">
-                <span class="eg-student-legend-low">&#9679; {{legendlow}}</span>: {{#str}}student_rangelow, plagiarism_essayguard{{/str}} &nbsp;
-                <span class="eg-student-legend-medium">&#9679; {{legendmedium}}</span>: {{#str}}student_rangemedium, plagiarism_essayguard{{/str}} &nbsp;
-                <span class="eg-student-legend-high">&#9679; {{legendhigh}}</span>: {{#str}}student_rangehigh, plagiarism_essayguard{{/str}}
+            <div class="essayguard-student-legend">
+                <span class="essayguard-student-legend-low">&#9679; {{legendlow}}</span>: {{#str}}student_rangelow, plagiarism_essayguard{{/str}} &nbsp;
+                <span class="essayguard-student-legend-medium">&#9679; {{legendmedium}}</span>: {{#str}}student_rangemedium, plagiarism_essayguard{{/str}} &nbsp;
+                <span class="essayguard-student-legend-high">&#9679; {{legendhigh}}</span>: {{#str}}student_rangehigh, plagiarism_essayguard{{/str}}
             </div>
         </div>
         {{/overall}}
 
         {{#baseline}}
-        <div class="eg-student-baseline eg-student-baseline-{{status}}">
-            <span class="eg-student-baseline-key">{{#str}}baseline_confidence, plagiarism_essayguard{{/str}}:</span>
-            <span class="eg-student-baseline-value">{{label}}</span>
+        <div class="essayguard-student-baseline essayguard-student-baseline-{{status}}">
+            <span class="essayguard-student-baseline-key">{{#str}}baseline_confidence, plagiarism_essayguard{{/str}}:</span>
+            <span class="essayguard-student-baseline-value">{{label}}</span>
             {{#stable}}
-                <div class="eg-student-baseline-note">{{context}}</div>
+                <div class="essayguard-student-baseline-note">{{context}}</div>
                 {{#hasrows}}
-                <table class="generaltable eg-student-baselinetable">
+                <table class="generaltable essayguard-student-baselinetable">
                     <tr>
                         <th scope="col">{{#str}}bl_measurement, plagiarism_essayguard{{/str}}</th>
                         <th scope="col">{{#str}}bl_thissubmission, plagiarism_essayguard{{/str}}</th>
@@ -162,53 +162,53 @@
                         <td>{{observed}}</td>
                         <td>{{mean}}</td>
                         <td>&plusmn;{{sd}}</td>
-                        <td class="eg-student-z">{{z}}</td>
+                        <td class="essayguard-student-z">{{z}}</td>
                     </tr>
                     {{/rows}}
                 </table>
                 {{/hasrows}}
             {{/stable}}
             {{^stable}}
-                <div class="eg-student-baseline-note">{{#str}}baselinenotenough, plagiarism_essayguard{{/str}}</div>
+                <div class="essayguard-student-baseline-note">{{#str}}baselinenotenough, plagiarism_essayguard{{/str}}</div>
             {{/stable}}
         </div>
         {{/baseline}}
 
         {{#hasexplanations}}
-        <h3 class="eg-student-h3">{{#str}}indicatorsheading, plagiarism_essayguard{{/str}}</h3>
-        <ul class="eg-student-indicators">
+        <h3 class="essayguard-student-h3">{{#str}}indicatorsheading, plagiarism_essayguard{{/str}}</h3>
+        <ul class="essayguard-student-indicators">
             {{#explanations}}
             <li>{{.}}</li>
             {{/explanations}}
         </ul>
         {{/hasexplanations}}
 
-        <h3 class="eg-student-h3">{{#str}}metricsheading, plagiarism_essayguard{{/str}}</h3>
-        <table class="generaltable eg-student-metrics">
+        <h3 class="essayguard-student-h3">{{#str}}metricsheading, plagiarism_essayguard{{/str}}</h3>
+        <table class="generaltable essayguard-student-metrics">
             <tbody>
                 {{#metrics}}
                 <tr>
-                    <td class="eg-student-metriclabel">{{label}}</td>
+                    <td class="essayguard-student-metriclabel">{{label}}</td>
                     <td>{{value}}</td>
                 </tr>
                 {{/metrics}}
             </tbody>
         </table>
 
-        <h3 class="eg-student-h3-signals">{{#str}}signalbreakdownheading, plagiarism_essayguard{{/str}}</h3>
+        <h3 class="essayguard-student-h3-signals">{{#str}}signalbreakdownheading, plagiarism_essayguard{{/str}}</h3>
         {{#signaltable}}
             {{> plagiarism_essayguard/student_signal_table }}
         {{/signaltable}}
 
         {{#hasquestions}}
-        <h3 class="eg-student-h3-perq">{{#str}}perquestionheading, plagiarism_essayguard{{/str}}</h3>
-        <p class="eg-student-perqhelp">{{#str}}student_perquestionhelp, plagiarism_essayguard{{/str}}</p>
+        <h3 class="essayguard-student-h3-perq">{{#str}}perquestionheading, plagiarism_essayguard{{/str}}</h3>
+        <p class="essayguard-student-perqhelp">{{#str}}student_perquestionhelp, plagiarism_essayguard{{/str}}</p>
         {{#questions}}
             {{> plagiarism_essayguard/student_question_card }}
         {{/questions}}
         {{/hasquestions}}
 
-        <div class="eg-student-guide">
+        <div class="essayguard-student-guide">
             <strong>{{#str}}interpretationguide, plagiarism_essayguard{{/str}}</strong>
             <ul>
                 <li>{{#str}}interpretlow, plagiarism_essayguard{{/str}}</li>

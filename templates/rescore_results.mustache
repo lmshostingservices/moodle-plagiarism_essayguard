@@ -37,8 +37,8 @@
         "remaining": 30,
         "hasrows": true,
         "rows": [
-            {"name": "Ann Smith", "qaid": 12, "detail": "MEDIUM 48% (Q1, Q2 + aggregate)", "statusclass": "eg-rescore-result-medium"},
-            {"name": "Bob Jones", "qaid": 11, "detail": "No essay text found", "statusclass": "eg-rescore-result-notext"}
+            {"name": "Ann Smith", "qaid": 12, "detail": "MEDIUM 48% (Q1, Q2 + aggregate)", "statusclass": "essayguard-rescore-result-medium"},
+            {"name": "Bob Jones", "qaid": 11, "detail": "No essay text found", "statusclass": "essayguard-rescore-result-notext"}
         ]
     }
 }}
@@ -56,7 +56,7 @@
 {{/remaining}}
 
 {{#hasrows}}
-<table class="table table-sm eg-rescore-table">
+<table class="table table-sm essayguard-rescore-table">
     <thead>
         <tr>
             <th scope="col">{{#str}}rescore_colstudent, plagiarism_essayguard{{/str}}</th>
@@ -68,8 +68,8 @@
         {{#rows}}
         <tr>
             <td>{{name}}</td>
-            <td class="eg-muted eg-ts">{{qaid}}</td>
-            <td class="eg-rescore-result {{statusclass}}">{{detail}}</td>
+            <td class="essayguard-muted essayguard-ts">{{qaid}}</td>
+            <td class="essayguard-rescore-result {{statusclass}}">{{detail}}</td>
         </tr>
         {{/rows}}
     </tbody>

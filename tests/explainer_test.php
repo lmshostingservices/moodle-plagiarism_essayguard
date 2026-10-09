@@ -40,6 +40,7 @@ use plagiarism_essayguard\local\service\explainer;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\explainer
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\explainer::class)]
 final class explainer_test extends \advanced_testcase {
     /**
      * A metric set on which no explanation rule fires.
@@ -75,6 +76,7 @@ final class explainer_test extends \advanced_testcase {
      * @param int   $expected  The number of explanations observed for the result.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('single_rule_provider')]
     public function test_one_metric_fires_one_rule(array $overrides, int $expected): void {
         $metrics = $overrides + self::baseline();
         $explanations = explainer::explain($metrics, 'high');
@@ -142,6 +144,7 @@ final class explainer_test extends \advanced_testcase {
      * @param array $overrides The metrics to change from the baseline.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('no_rule_provider')]
     public function test_a_metric_outside_every_gate_falls_back(array $overrides): void {
         $metrics = $overrides + self::baseline();
         $high = explainer::explain($metrics, 'high');
@@ -335,6 +338,7 @@ final class explainer_test extends \advanced_testcase {
      * @param bool  $explains Whether an explanation is expected.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('gate_alignment_provider')]
     public function test_explainer_gates_match_the_analyser(array $metrics, bool $explains): void {
         // Since v1.2.225 explain() can never return an empty array, so a count of one
         // does not distinguish "a rule fired" from "the fallback filled the gap". The
@@ -439,6 +443,7 @@ final class explainer_test extends \advanced_testcase {
      *                                or null when no sentence is expected.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('baseline_component_provider')]
     public function test_every_baseline_component_can_be_explained(
         array $metrics,
         array $comparison,

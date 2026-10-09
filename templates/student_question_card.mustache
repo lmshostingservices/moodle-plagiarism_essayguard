@@ -45,8 +45,8 @@
     Example context (json):
     {
         "slot": 2,
-        "cardid": "eg-q-card-2",
-        "bodyid": "eg-q-body-2",
+        "cardid": "essayguard-q-card-2",
+        "bodyid": "essayguard-q-body-2",
         "level": "high",
         "badgelabel": "HIGH",
         "title": "Question 2",
@@ -58,7 +58,7 @@
         "typing": "Typing: 12.5 s",
         "hastexts": true,
         "questiontext": {
-            "id": "eg-qt-2",
+            "id": "essayguard-qt-2",
             "islong": false,
             "short": "Describe the principles of assessment.",
             "full": "Describe the principles of assessment.",
@@ -74,41 +74,41 @@
         }
     }
 }}
-<div id="{{cardid}}" class="eg-student-qcard eg-student-level-{{level}}">
-    <div class="eg-student-qheader" role="button" tabindex="0"
+<div id="{{cardid}}" class="essayguard-student-qcard essayguard-student-level-{{level}}">
+    <div class="essayguard-student-qheader" role="button" tabindex="0"
          data-action="plagiarism_essayguard-student-togglecard"
          aria-expanded="false" aria-controls="{{bodyid}}">
-        <span class="eg-student-qbadge"><span class="eg-student-qdot"></span>{{badgelabel}}</span>
-        <strong class="eg-student-qtitle">{{title}}</strong>
-        <span class="eg-student-qstats">
+        <span class="essayguard-student-qbadge"><span class="essayguard-student-qdot"></span>{{badgelabel}}</span>
+        <strong class="essayguard-student-qtitle">{{title}}</strong>
+        <span class="essayguard-student-qstats">
             {{#unmeasured}}
-            <span class="eg-muted">{{#str}}student_scoreoutof, plagiarism_essayguard, —{{/str}}</span>
+            <span class="essayguard-muted">{{#str}}student_scoreoutof, plagiarism_essayguard, —{{/str}}</span>
             {{/unmeasured}}
             {{^unmeasured}}
-            <span><strong class="eg-student-qscore">{{score}}</strong>{{#str}}student_outof100compact, plagiarism_essayguard{{/str}}</span>
+            <span><strong class="essayguard-student-qscore">{{score}}</strong>{{#str}}student_outof100compact, plagiarism_essayguard{{/str}}</span>
             {{/unmeasured}}
             <span>{{keystrokes}}</span>
             <span>{{pastes}}</span>
             <span>{{avgwpm}}</span>
             <span>{{typing}}</span>
-            <span class="eg-muted"><span class="eg-student-qchevron" aria-hidden="true">&#9660;</span> {{#str}}signalsword, plagiarism_essayguard{{/str}}</span>
+            <span class="essayguard-muted"><span class="essayguard-student-qchevron" aria-hidden="true">&#9660;</span> {{#str}}signalsword, plagiarism_essayguard{{/str}}</span>
         </span>
     </div>
 
     {{#hastexts}}
-    <div class="eg-student-qtexts">
+    <div class="essayguard-student-qtexts">
         {{#questiontext}}
         <div>
-            <div class="eg-student-qtextlabel">{{#str}}questionheading, plagiarism_essayguard{{/str}}</div>
-            <div class="eg-student-qtextbox eg-student-qtextbox-question">
+            <div class="essayguard-student-qtextlabel">{{#str}}questionheading, plagiarism_essayguard{{/str}}</div>
+            <div class="essayguard-student-qtextbox essayguard-student-qtextbox-question">
                 {{> plagiarism_essayguard/student_truncated_text }}
             </div>
         </div>
         {{/questiontext}}
         {{#answertext}}
         <div>
-            <div class="eg-student-qtextlabel">{{#str}}studentanswer, plagiarism_essayguard{{/str}}</div>
-            <div class="eg-student-qtextbox eg-student-qtextbox-answer">
+            <div class="essayguard-student-qtextlabel">{{#str}}studentanswer, plagiarism_essayguard{{/str}}</div>
+            <div class="essayguard-student-qtextbox essayguard-student-qtextbox-answer">
                 {{> plagiarism_essayguard/student_truncated_text }}
             </div>
         </div>
@@ -116,16 +116,16 @@
     </div>
     {{/hastexts}}
 
-    <div id="{{bodyid}}" class="eg-student-qbody" hidden>
+    <div id="{{bodyid}}" class="essayguard-student-qbody" hidden>
         {{#shownodatanotice}}
-        <div class="eg-student-nodatanotice">{{#str}}nodatanotice, plagiarism_essayguard{{/str}}</div>
+        <div class="essayguard-student-nodatanotice">{{#str}}nodatanotice, plagiarism_essayguard{{/str}}</div>
         {{/shownodatanotice}}
 
-        <div class="eg-student-qbarrow">
-            <div class="eg-student-qbar">
-                <div class="eg-student-barfill" style="width: {{barwidth}}%;"></div>
+        <div class="essayguard-student-qbarrow">
+            <div class="essayguard-student-qbar">
+                <div class="essayguard-student-barfill" style="width: {{barwidth}}%;"></div>
             </div>
-            <span class="eg-student-qscoreline">{{scoreline}}</span>
+            <span class="essayguard-student-qscoreline">{{scoreline}}</span>
         </div>
 
         {{#signaltable}}

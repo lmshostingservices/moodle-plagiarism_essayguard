@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * plagiarism_essayguard file.
+ * Web service that stores buffered Essay Guard typing telemetry.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
@@ -78,7 +78,7 @@ class log_event extends external_api {
      *
      * @var int Maximum number of telemetry events accepted in a single call.
      */
-    const MAX_EVENTS = 500;
+    public const MAX_EVENTS = 500;
 
     /**
      * MAX_PAYLOAD_BYTES: payloadjson is an unfiltered JSON string (see the parameter
@@ -88,7 +88,7 @@ class log_event extends external_api {
      *
      * @var int Maximum size in bytes of one event's payloadjson.
      */
-    const MAX_PAYLOAD_BYTES = 2048;
+    public const MAX_PAYLOAD_BYTES = 2048;
 
     /**
      * MAX_ATTEMPTKEY_LEN: the column is char(64). PARAM_ALPHANUMEXT imposes no length
@@ -98,7 +98,7 @@ class log_event extends external_api {
      *
      * @var int Maximum accepted length of an attempt key, matching the char(64) column.
      */
-    const MAX_ATTEMPTKEY_LEN = 64;
+    public const MAX_ATTEMPTKEY_LEN = 64;
 
     /**
      * V1.2.229 FIX-EG-LOGEVENT-EVENTNAME-LEN: the same hole v1.2.219 closed for
@@ -111,10 +111,10 @@ class log_event extends external_api {
      *
      * @var int Maximum accepted length of an event name, matching the char(32) column.
      */
-    const MAX_EVENTNAME_LEN = 32;
+    public const MAX_EVENTNAME_LEN = 32;
 
     /** v1.2.219: Minimum seconds between full re-scoring passes for one attempt. */
-    const SCORE_THROTTLE_SECONDS = 60;
+    public const SCORE_THROTTLE_SECONDS = 60;
 
     /**
      * Describe the arguments accepted by the log_event web service.

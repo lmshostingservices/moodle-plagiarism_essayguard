@@ -46,16 +46,16 @@ namespace plagiarism_essayguard\local;
  */
 class signals {
     /** @var string Directly observed: the clipboard or a bulk insertion was used. */
-    const EVIDENCE_OBSERVED = 'observed';
+    public const EVIDENCE_OBSERVED = 'observed';
 
     /** @var string Behavioural: describes how the typing happened. */
-    const EVIDENCE_BEHAVIOURAL = 'behavioural';
+    public const EVIDENCE_BEHAVIOURAL = 'behavioural';
 
     /** @var string Textual: describes the prose, not the person. Corroboration only. */
-    const EVIDENCE_TEXTUAL = 'textual';
+    public const EVIDENCE_TEXTUAL = 'textual';
 
     /** @var string Comparative: measured against this student's own established pattern. */
-    const EVIDENCE_COMPARATIVE = 'comparative';
+    public const EVIDENCE_COMPARATIVE = 'comparative';
 
     /**
      * The most points the textual signals may contribute between them.
@@ -67,7 +67,7 @@ class signals {
      *
      * @var int
      */
-    const TEXTUAL_CAP = 20;
+    public const TEXTUAL_CAP = 20;
 
     /**
      * Definitions for every signal the engine can award.

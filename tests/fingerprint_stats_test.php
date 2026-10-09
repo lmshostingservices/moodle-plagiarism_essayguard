@@ -37,6 +37,7 @@ use plagiarism_essayguard\local\service\fingerprint;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\fingerprint
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\fingerprint::class)]
 final class fingerprint_stats_test extends \advanced_testcase {
     /**
      * Build a metrics array for one submission.

@@ -42,17 +42,17 @@
     }
 }}
 {{#show}}
-<div class="eg-status-banner" role="alert">
+<div class="essayguard-status-banner" role="alert">
     <span aria-hidden="true">&#x26A0;</span> <strong>{{#str}}notscoring, plagiarism_essayguard{{/str}}</strong>
-    <ul class="eg-status-banner-list">
+    <ul class="essayguard-status-banner-list">
         {{#globaldisabled}}
-        <li>{{#str}}warnglobaldisabled, plagiarism_essayguard{{/str}}<a href="{{settingsurl}}">{{#str}}warnglobaldisabledlink, plagiarism_essayguard{{/str}}</a></li>
+        <li>{{#str}}warnglobaldisabled, plagiarism_essayguard, {{settingsurl}}{{/str}}</li>
         {{/globaldisabled}}
         {{#cmdisabled}}
         <li>{{#str}}warncmdisabled, plagiarism_essayguard{{/str}}</li>
         {{/cmdisabled}}
         {{#notunlocked}}
-        <li>{{#str}}warnnotunlocked, plagiarism_essayguard{{/str}}<a href="{{settingsurl}}">{{#str}}settingslink, plagiarism_essayguard{{/str}}</a>{{#str}}warnnotunlockedtail, plagiarism_essayguard{{/str}}</li>
+        <li>{{#str}}warnnotunlocked, plagiarism_essayguard, {{settingsurl}}{{/str}}</li>
         {{/notunlocked}}
     </ul>
 </div>

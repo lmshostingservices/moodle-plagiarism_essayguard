@@ -50,7 +50,7 @@ class analyser {
      *
      * @var int
      */
-    const PASTE_DERIVED_CAP = 25;
+    public const PASTE_DERIVED_CAP = 25;
 
     /**
      * Per-request snapshot of telemetry rows, keyed by "userid:cmid:attemptkey".
@@ -71,7 +71,7 @@ class analyser {
      *
      * @var string[]
      */
-    const BENIGN_INPUT_TYPES = [
+    public const BENIGN_INPUT_TYPES = [
         'historyUndo',
         'historyRedo',
         'insertCompositionText',

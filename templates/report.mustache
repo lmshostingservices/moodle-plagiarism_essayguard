@@ -94,34 +94,34 @@
     }
 }}
 {{#status}}{{> plagiarism_essayguard/report_status}}{{/status}}
-<div class="eg-class-header">
-    <div class="eg-class-header-inner">
-        <h2 class="eg-class-title">{{#str}}classreportheading, plagiarism_essayguard{{/str}}</h2>
-        <p class="eg-class-meta">
-            <span class="eg-version-badge">{{release}}</span>
+<div class="essayguard-class-header">
+    <div class="essayguard-class-header-inner">
+        <h2 class="essayguard-class-title">{{#str}}classreportheading, plagiarism_essayguard{{/str}}</h2>
+        <p class="essayguard-class-meta">
+            <span class="essayguard-version-badge">{{release}}</span>
             &nbsp;&nbsp;{{#str}}essayguard, plagiarism_essayguard{{/str}}
         </p>
     </div>
-    <a href="{{gradeurl}}" class="eg-back-btn"><span aria-hidden="true">&#8592;</span> {{#str}}backtograding, plagiarism_essayguard{{/str}}</a>
+    <a href="{{gradeurl}}" class="essayguard-back-btn"><span aria-hidden="true">&#8592;</span> {{#str}}backtograding, plagiarism_essayguard{{/str}}</a>
 </div>
-<p class="eg-class-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
+<p class="essayguard-class-subtitle">{{activityname}} &nbsp;|&nbsp; {{coursename}}</p>
 
-<div class="eg-stat-cards">
+<div class="essayguard-stat-cards">
     {{#statcards}}
-    <div class="eg-stat-card eg-stat-card-{{variant}}">
-        <div class="eg-stat-num">{{value}}</div>
-        <div class="eg-stat-label">{{label}}</div>
+    <div class="essayguard-stat-card essayguard-stat-card-{{variant}}">
+        <div class="essayguard-stat-num">{{value}}</div>
+        <div class="essayguard-stat-label">{{label}}</div>
     </div>
     {{/statcards}}
 </div>
 
 {{^hasrows}}
 <div class="essayguard-empty">
-    <p class="eg-empty-text">{{#str}}emptystate, plagiarism_essayguard{{/str}}</p>
+    <p class="essayguard-empty-text">{{#str}}emptystate, plagiarism_essayguard{{/str}}</p>
     {{#isquiz}}
-    <div class="eg-rescore-prompt">
+    <div class="essayguard-rescore-prompt">
         <strong>{{#str}}rescoreprompt, plagiarism_essayguard{{/str}}</strong>
-        {{#str}}useword, plagiarism_essayguard{{/str}}<a href="{{rescoreurl}}" class="eg-rescore-link">{{#str}}rescoretoollink, plagiarism_essayguard{{/str}}</a>{{#str}}rescoreprompttail, plagiarism_essayguard{{/str}}
+        {{#str}}rescoreprompthelp, plagiarism_essayguard, {{rescoreurl}}{{/str}}
     </div>
     {{/isquiz}}
 </div>

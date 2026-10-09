@@ -31,6 +31,7 @@ use plagiarism_essayguard\local\service\linguistic;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\linguistic
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\linguistic::class)]
 final class linguistic_test extends \advanced_testcase {
     /**
      * Text shorter than the twenty-character floor is not analysed at all.
@@ -42,6 +43,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param string $text The submitted text.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('short_text_provider')]
     public function test_analyse_returns_zeroed_metrics_below_the_floor(string $text): void {
         $this->assertSame([
             'paragraph_count'     => 0,
@@ -85,6 +87,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param array  $expected The full metric array observed from the real method.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('analyse_provider')]
     public function test_analyse_reports_the_observed_metrics(string $text, array $expected): void {
         $this->assertSame($expected, linguistic::analyse($text));
     }
@@ -176,6 +179,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param int[]  $expected Word count per sentence, in document order.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('sentence_lengths_provider')]
     public function test_sentence_lengths(string $text, array $expected): void {
         $this->assertSame($expected, linguistic::sentence_lengths($text));
     }
@@ -205,6 +209,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param float   $expected The observed population variance.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('variance_provider')]
     public function test_variance(array $values, float $expected): void {
         $this->assertSame($expected, linguistic::variance($values));
     }
@@ -233,6 +238,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param float   $expected The observed population standard deviation.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('std_dev_provider')]
     public function test_std_dev(array $values, float $expected): void {
         $this->assertSame($expected, linguistic::std_dev($values));
     }
@@ -260,6 +266,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param float  $expected The observed type-token ratio.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('vocab_diversity_provider')]
     public function test_vocab_diversity(string $text, float $expected): void {
         $this->assertSame($expected, linguistic::vocab_diversity($text));
     }
@@ -287,6 +294,7 @@ final class linguistic_test extends \advanced_testcase {
      * @param float  $expected The observed ratio of long words.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('rare_word_ratio_provider')]
     public function test_rare_word_ratio(string $text, float $expected): void {
         $this->assertSame($expected, linguistic::rare_word_ratio($text));
     }

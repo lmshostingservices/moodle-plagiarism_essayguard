@@ -48,13 +48,13 @@
         ]
     }
 }}
-<h4 class="eg-section-heading eg-section-heading-spaced">{{#str}}crossheading, plagiarism_essayguard{{/str}}</h4>
-<p class="eg-similarity-note">{{#str}}crossnote, plagiarism_essayguard{{/str}}</p>
+<h4 class="essayguard-section-heading essayguard-section-heading-spaced">{{#str}}crossheading, plagiarism_essayguard{{/str}}</h4>
+<p class="essayguard-similarity-note">{{#str}}crossnote, plagiarism_essayguard{{/str}}</p>
 {{^hashighrisk}}
-<p class="eg-no-similarity">{{#str}}nohighrisk, plagiarism_essayguard{{/str}}</p>
+<p class="essayguard-no-similarity">{{#str}}nohighrisk, plagiarism_essayguard{{/str}}</p>
 {{/hashighrisk}}
 {{#hashighrisk}}
-<table class="generaltable eg-similarity-table">
+<table class="generaltable essayguard-similarity-table">
     <thead>
         <tr>
             <th scope="col">{{#str}}colstudent, plagiarism_essayguard{{/str}}</th>
@@ -66,10 +66,10 @@
     <tbody>
         {{#highrisk}}
         <tr>
-            <td class="eg-student-name-plain">{{fullname}}</td>
-            <td><span class="eg-score-badge eg-score-badge-high">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
-            <td class="eg-signal-label">{{signal}}</td>
-            <td><a href="{{detailurl}}" class="eg-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
+            <td class="essayguard-student-name-plain">{{fullname}}</td>
+            <td><span class="essayguard-score-badge essayguard-score-badge-high">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
+            <td class="essayguard-signal-label">{{signal}}</td>
+            <td><a href="{{detailurl}}" class="essayguard-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
         </tr>
         {{/highrisk}}
     </tbody>

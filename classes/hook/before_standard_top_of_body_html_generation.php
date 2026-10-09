@@ -100,7 +100,8 @@ class before_standard_top_of_body_html_generation {
 
         // Attempt pages only — not the summary, review or grading pages.
         $pagetypeok = ($PAGE->pagetype === 'mod-quiz-attempt');
-        $uriok      = (strpos($_SERVER['REQUEST_URI'] ?? '', '/mod/quiz/attempt.php') !== false);
+        $uriok      = $PAGE->has_set_url()
+            && substr($PAGE->url->get_path(false), -strlen('/mod/quiz/attempt.php')) === '/mod/quiz/attempt.php';
         if (!$pagetypeok && !$uriok) {
             return '';
         }

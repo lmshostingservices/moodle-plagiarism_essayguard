@@ -31,10 +31,12 @@ require_once($CFG->dirroot . '/plagiarism/essayguard/db/upgrade.php');
  * @covers     ::xmldb_plagiarism_essayguard_upgrade
  * @covers     ::plagiarism_essayguard_upgrade_repair_schema
  */
+#[\PHPUnit\Framework\Attributes\CoversFunction('xmldb_plagiarism_essayguard_upgrade')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_upgrade_repair_schema')]
 final class upgrade_test extends \advanced_testcase {
     /**
      * Each version has exactly one upgrade block and exactly one savepoint, in
-     * ascending order, the last being the version in version.php.
+     * ascending order, none newer than the version in version.php.
      *
      * @return void
      */
@@ -52,7 +54,9 @@ final class upgrade_test extends \advanced_testcase {
 
         $plugin = new \stdClass();
         require($CFG->dirroot . '/plagiarism/essayguard/version.php');
-        $this->assertSame((string)$plugin->version, end($blocks[1]));
+        // A release without schema or data changes has no block, so the last block may be
+        // older than version.php, but never newer.
+        $this->assertLessThanOrEqual((int)$plugin->version, (int)end($blocks[1]));
     }
 
     /**

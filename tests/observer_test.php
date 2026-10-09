@@ -37,6 +37,7 @@ require_once(__DIR__ . '/fixtures/essayguard_test_helper.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\observer
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\observer::class)]
 final class observer_test extends \advanced_testcase {
     use \essayguard_test_helper;
 
@@ -277,7 +278,7 @@ final class observer_test extends \advanced_testcase {
                 true
             )
         );
-        $this->assertDebuggingCalled();
+        $this->assertDebuggingNotCalled();
 
         $this->assertSame(0, $DB->count_records('plagiarism_essayguard_sc'));
     }

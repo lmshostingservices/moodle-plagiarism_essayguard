@@ -37,18 +37,19 @@ use plagiarism_essayguard\local\service\analyser;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\analyser
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\analyser::class)]
 final class analyser_test extends \advanced_testcase {
     /** @var int The student the fixtures belong to. */
-    const USERID = 501;
+    public const USERID = 501;
 
     /** @var int The course module the fixtures belong to. */
-    const CMID = 601;
+    public const CMID = 601;
 
     /** @var int The module context the fixtures belong to. */
-    const CONTEXTID = 701;
+    public const CONTEXTID = 701;
 
     /** @var string The typing-session key the fixtures share. */
-    const ATTEMPTKEY = 'egtestattemptkey';
+    public const ATTEMPTKEY = 'egtestattemptkey';
 
     /**
      * Why the exact scores of paste sessions are not asserted until the cap is reviewed.
@@ -61,7 +62,7 @@ final class analyser_test extends \advanced_testcase {
      *
      * @var string
      */
-    const PASTE_CAP_ROUNDING = 'paste-derived Signals 3-7 are scaled to PASTE_DERIVED_CAP=25 and rounded one by one,'
+    public const PASTE_CAP_ROUNDING = 'paste-derived Signals 3-7 are scaled to PASTE_DERIVED_CAP=25 and rounded one by one,'
         . ' so they sum to 26 (full paste scores 86, not the 85 the documented cap implies;'
         . ' tests still expect the pre-v1.3.0 uncapped values)';
 
@@ -74,7 +75,7 @@ final class analyser_test extends \advanced_testcase {
      *
      * @var array
      */
-    const QUIET_LINGUISTIC = [
+    public const QUIET_LINGUISTIC = [
         'sentence_variance' => 20.0,
         'vocab_diversity'   => 0.8,
         'rare_word_ratio'   => 0.1,
@@ -195,6 +196,7 @@ final class analyser_test extends \advanced_testcase {
      * @param string $expected The band observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('risk_level_provider')]
     public function test_risk_level(int $score100, string $expected): void {
         $this->assertSame($expected, analyser::risk_level($score100));
     }
@@ -227,6 +229,7 @@ final class analyser_test extends \advanced_testcase {
      * @param float $expected The entropy score observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('entropy_from_sd_provider')]
     public function test_entropy_from_sd(float $sd, float $expected): void {
         $this->assertSame($expected, analyser::entropy_from_sd($sd));
     }
@@ -263,6 +266,7 @@ final class analyser_test extends \advanced_testcase {
      * @param float   $expected The observed standard deviation.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('std_dev_provider')]
     public function test_std_dev(array $values, float $expected): void {
         $this->assertSame($expected, analyser::std_dev($values));
     }
@@ -336,6 +340,7 @@ final class analyser_test extends \advanced_testcase {
      * @param string $risklevel  The band observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('paste_weight_provider')]
     public function test_paste_weight_scales_signal_one(
         string $configured,
         int $signal1,
@@ -386,6 +391,7 @@ final class analyser_test extends \advanced_testcase {
      * @param string      $risklevel  The band observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('pure_paste_weight_provider')]
     public function test_paste_weight_scales_the_whole_pure_paste_session(
         ?string $configured,
         array $breakdown,
@@ -498,6 +504,7 @@ final class analyser_test extends \advanced_testcase {
      * @param array       $breakdown  The signal breakdown observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('minchars_provider')]
     public function test_minchars_gates_the_signal_engine(
         ?string $configured,
         int $score100,
@@ -547,6 +554,7 @@ final class analyser_test extends \advanced_testcase {
      * @param int         $expected   The burstsuspicious count observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('maxburstchars_provider')]
     public function test_maxburstchars_boundary(
         ?string $configured,
         int $insertlen,
@@ -619,6 +627,7 @@ final class analyser_test extends \advanced_testcase {
      * @param array  $breakdown The signal breakdown observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('qslot_provider')]
     public function test_per_question_slots_are_scored_in_isolation(
         int $qslot,
         string $which,
@@ -796,6 +805,7 @@ final class analyser_test extends \advanced_testcase {
      * @param string $risklevel   The band observed for it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('server_cps_provider')]
     public function test_server_timing_signal(
         int $durationsec,
         float $servercps,
@@ -915,6 +925,7 @@ final class analyser_test extends \advanced_testcase {
      * @param string $expected  The risk level observed.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unmeasured_provider')]
     public function test_an_unmeasured_attempt_is_not_reported_as_low(
         bool $hasevents,
         string $text,

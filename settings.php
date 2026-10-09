@@ -87,7 +87,7 @@ if ($action === 'unlock') {
 // Confirmed purchase: POST only.
 if ($action === 'unlockconfirmed') {
     require_sesskey();
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    if (!data_submitted()) {
         redirect($pageurl);
     }
     $siteid = plagiarism_essayguard_get_siteid();

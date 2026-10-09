@@ -33,25 +33,25 @@ namespace plagiarism_essayguard\local\service;
  */
 class fingerprint {
     /** @var float Weight given to the newest submission when blending it into the running baseline. */
-    const WEIGHT_NEW       = 0.25;
+    public const WEIGHT_NEW       = 0.25;
 
     /** @var float Weight retained by the existing baseline when a new submission is blended in. */
-    const WEIGHT_OLD       = 0.75;
+    public const WEIGHT_OLD       = 0.75;
 
     /** @var string Confidence label for a baseline built from too few samples to be used. */
-    const STATUS_NONE      = 'none';
+    public const STATUS_NONE      = 'none';
 
     /** @var string Confidence label for an early baseline: usable, but still an estimate. */
-    const STATUS_PRELIM    = 'preliminary';
+    public const STATUS_PRELIM    = 'preliminary';
 
     /** @var string Confidence label for a baseline with enough samples to be treated as reliable. */
-    const STATUS_STABLE    = 'stable';
+    public const STATUS_STABLE    = 'stable';
 
     /** @var int Sample count at which the baseline is promoted from 'none' to 'preliminary'. */
-    const PRELIM_THRESHOLD = 3;
+    public const PRELIM_THRESHOLD = 3;
 
     /** @var int Sample count at which the baseline is promoted from 'preliminary' to 'stable'. */
-    const STABLE_THRESHOLD = 5;
+    public const STABLE_THRESHOLD = 5;
 
     /**
      * Samples required before a metric's own variance is trusted for comparison.
@@ -64,7 +64,7 @@ class fingerprint {
      *
      * @var int
      */
-    const MIN_SAMPLES_FOR_Z = 8;
+    public const MIN_SAMPLES_FOR_Z = 8;
 
     /**
      * Metrics with enough samples required before any comparative score is reported.
@@ -74,13 +74,13 @@ class fingerprint {
      *
      * @var int
      */
-    const MIN_METRICS_FOR_SCORE = 3;
+    public const MIN_METRICS_FOR_SCORE = 3;
 
     /** @var float Deviations below this many standard deviations score nothing. */
-    const Z_FLOOR = 2.0;
+    public const Z_FLOOR = 2.0;
 
     /** @var float Deviation at which a metric contributes its full weight. */
-    const Z_CEILING = 4.0;
+    public const Z_CEILING = 4.0;
 
     /**
      * The metrics tracked per student, mapped to their key in the metrics array.
@@ -92,7 +92,7 @@ class fingerprint {
      *
      * @var string[]
      */
-    const TRACKED_METRICS = [
+    public const TRACKED_METRICS = [
         'wpm'                => 'average_wpm',
         'pause_mean'         => 'pause_mean',
         'backspace_ratio'    => 'backspace_ratio',

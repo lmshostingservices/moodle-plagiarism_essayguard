@@ -279,11 +279,6 @@ class observer {
         // product reporting "no evidence collected" as "evidence of authenticity" is the
         // worst failure available to it. Absence of telemetry must produce no record.
         if (trim((string)$attemptkey) === '') {
-            \debugging(
-                'Essay Guard: no attempt key for user ' . $userid . ' on cmid ' . $cmid
-                    . ' - telemetry was never captured, so no score is recorded.',
-                DEBUG_DEVELOPER
-            );
             return;
         }
         try {

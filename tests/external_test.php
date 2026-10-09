@@ -40,6 +40,9 @@ use plagiarism_essayguard\external\log_event;
  * @covers     \plagiarism_essayguard\external\finalize_attempt
  * @covers     \plagiarism_essayguard\external\get_badges
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\external\log_event::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\external\finalize_attempt::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\external\get_badges::class)]
 final class external_test extends \advanced_testcase {
     use \essayguard_test_helper;
 

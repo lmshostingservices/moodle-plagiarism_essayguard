@@ -664,8 +664,8 @@ function plagiarism_essayguard_inject_tracker() {
 
     if ($cm->modname === 'quiz') {
         $pagetypeok = in_array($PAGE->pagetype, ['mod-quiz-attempt'], true);
-        $diagurl    = $_SERVER['REQUEST_URI'] ?? '';
-        $uriok      = (strpos($diagurl, '/mod/quiz/attempt.php') !== false);
+        $uriok      = $PAGE->has_set_url()
+            && substr($PAGE->url->get_path(false), -strlen('/mod/quiz/attempt.php')) === '/mod/quiz/attempt.php';
         if (!$pagetypeok && !$uriok) {
             return;
         }
@@ -1496,9 +1496,8 @@ function plagiarism_essayguard_render_badge(
         $levelmap = ['low' => 'low', 'medium' => 'medium', 'high' => 'high', 'partial' => 'medium', 'mild' => 'medium'];
         $state    = $levelmap[$level] ?? 'medium';
         $scoreint = (int)$score;
-        $label    = get_string('badgelabel', 'plagiarism_essayguard', (object)[
+        $label    = get_string($isaggregatefallback ? 'badgelabeloverall' : 'badgelabel', 'plagiarism_essayguard', (object)[
             'level'  => get_string('risk' . $state, 'plagiarism_essayguard'),
-            'suffix' => $isaggregatefallback ? get_string('badgesuffixoverall', 'plagiarism_essayguard') : '',
             'score'  => $scoreint,
         ]);
         $tooltip  = get_string('tooltip' . $state, 'plagiarism_essayguard', $scoreint);

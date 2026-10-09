@@ -56,8 +56,8 @@
         "results": {
             "scored": 1, "skipped": 1, "notext": 0, "errors": 0, "remaining": 0, "hasrows": true,
             "rows": [
-                {"name": "Ann Smith", "qaid": 12, "detail": "LOW 12% (Q1 + aggregate)", "statusclass": "eg-rescore-result-low"},
-                {"name": "Bob Jones", "qaid": 11, "detail": "Already has Essay Guard data", "statusclass": "eg-rescore-result-skipped"}
+                {"name": "Ann Smith", "qaid": 12, "detail": "LOW 12% (Q1 + aggregate)", "statusclass": "essayguard-rescore-result-low"},
+                {"name": "Bob Jones", "qaid": 11, "detail": "Already has Essay Guard data", "statusclass": "essayguard-rescore-result-skipped"}
             ]
         },
         "hasattempts": true,
@@ -78,11 +78,11 @@
         "previewcount": 2
     }
 }}
-<div class="eg-rescore">
+<div class="essayguard-rescore">
     <a href="{{reporturl}}" class="essayguard-back-link">&#8592; {{#str}}rescore_backtoreport, plagiarism_essayguard{{/str}}</a>
 
-    <h2 class="eg-rescore-title">{{#str}}rescore_heading, plagiarism_essayguard{{/str}}</h2>
-    <p class="eg-rescore-subtitle text-muted">{{{cmname}}} &nbsp;|&nbsp; {{attemptsfound}}</p>
+    <h2 class="essayguard-rescore-title">{{#str}}rescore_heading, plagiarism_essayguard{{/str}}</h2>
+    <p class="essayguard-rescore-subtitle text-muted">{{{cmname}}} &nbsp;|&nbsp; {{attemptsfound}}</p>
 
     <div class="alert alert-success">
         <strong>{{#str}}rescore_introheading, plagiarism_essayguard{{/str}}</strong>
@@ -101,7 +101,7 @@
     {{/statusdisabled}}
     {{#statuslocked}}
     <div class="alert alert-warning" role="status">
-        {{#pix}}i/warning, core{{/pix}} {{#str}}rescore_statuslockedstart, plagiarism_essayguard{{/str}}<a href="{{settingsurl}}" class="alert-link">{{#str}}settingslink, plagiarism_essayguard{{/str}}</a>{{#str}}rescore_statuslockedtail, plagiarism_essayguard{{/str}}
+        {{#pix}}i/warning, core{{/pix}} {{#str}}rescore_statuslocked, plagiarism_essayguard, {{settingsurl}}{{/str}}
     </div>
     {{/statuslocked}}
 
@@ -125,7 +125,7 @@
         <input type="hidden" name="action" value="rescore">
         <input type="hidden" name="force" value="0">
         <input type="hidden" name="afterid" value="{{afterid}}">
-        <div class="eg-rescore-actions">
+        <div class="essayguard-rescore-actions">
             <button type="submit" class="btn btn-primary"{{#disabled}} disabled{{/disabled}}>{{btnlabel}}</button>
             {{#showoverwrite}}
             <button type="button" class="btn btn-outline-primary"
@@ -137,9 +137,9 @@
     </form>
     {{/form}}
 
-    <h3 class="eg-rescore-preview-heading">{{#str}}rescore_previewheading, plagiarism_essayguard{{/str}}</h3>
-    <p class="eg-muted small">{{#str}}rescore_previewnote, plagiarism_essayguard, {{previewcount}}{{/str}}</p>
-    <table class="table table-sm eg-rescore-table">
+    <h3 class="essayguard-rescore-preview-heading">{{#str}}rescore_previewheading, plagiarism_essayguard{{/str}}</h3>
+    <p class="essayguard-muted small">{{#str}}rescore_previewnote, plagiarism_essayguard, {{previewcount}}{{/str}}</p>
+    <table class="table table-sm essayguard-rescore-table">
         <thead>
             <tr>
                 <th scope="col">{{#str}}rescore_colstudent, plagiarism_essayguard{{/str}}</th>
@@ -154,7 +154,7 @@
                 <td class="text-muted">{{submitted}}</td>
                 <td>
                     {{#hasdata}}<span class="text-success font-weight-bold">&#x2713; {{#str}}rescore_scored, plagiarism_essayguard{{/str}}</span>{{/hasdata}}
-                    {{^hasdata}}<span class="eg-muted">{{#str}}rescore_notscored, plagiarism_essayguard{{/str}}</span>{{/hasdata}}
+                    {{^hasdata}}<span class="essayguard-muted">{{#str}}rescore_notscored, plagiarism_essayguard{{/str}}</span>{{/hasdata}}
                 </td>
             </tr>
             {{/preview}}

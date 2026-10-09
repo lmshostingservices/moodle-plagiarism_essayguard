@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * plagiarism_essayguard file.
+ * Version details for Essay Guard.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_essayguard';
-$plugin->version   = 2026100800;
-$plugin->release   = '1.4.1';
+$plugin->version   = 2026100900;
+$plugin->release   = '1.4.2';
 $plugin->requires  = 2024042200;   // Moodle 4.4: the output hooks in db/hooks.php need it.
 $plugin->maturity  = MATURITY_STABLE;
 $plugin->supported = [404, 502];

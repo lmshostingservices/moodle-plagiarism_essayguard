@@ -162,6 +162,11 @@ $result = $client::execute($cmid, $attemptkey, $submittedtext);
 
 ---
 
+## Compatibility
+
+Moodle 4.4 to 5.2 (`$plugin->supported = [404, 502]`). Release 1.4.1 was tested on Moodle 4.5
+with PostgreSQL 16 and Moodle 5.2 with MariaDB 10.11, on PHP 8.3.
+
 ## Configuration
 
 Settings page: **Site Administration → Plugins → Plagiarism prevention → Essay Guard**

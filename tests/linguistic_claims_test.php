@@ -32,6 +32,7 @@ use plagiarism_essayguard\local\signals;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\local\service\linguistic
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\local\service\linguistic::class)]
 final class linguistic_claims_test extends \basic_testcase {
     /**
      * Heavily signposted prose scores higher than unstructured writing.

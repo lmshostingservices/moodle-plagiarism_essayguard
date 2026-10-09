@@ -371,15 +371,6 @@
     min-width: 0;
 }
 
-.essayguard-student-name {
-    font-weight: 600;
-    color: #111827;
-    text-decoration: none;
-    font-size: 0.88rem;
-}
-.essayguard-student-name:hover {
-    text-decoration: underline;
-}
 
 .essayguard-detail-link {
     font-size: 0.75rem;
@@ -416,7 +407,7 @@
 
 /* ── Class Report (DocGuard-quality layout) ──────────────────────────────── */
 
-.eg-class-header {
+.essayguard-class-header {
     background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
     color: #fff;
     padding: 1.25rem 1.5rem;
@@ -429,24 +420,24 @@
     gap: 0.75rem;
 }
 
-.eg-class-header * {
+.essayguard-class-header * {
     color: #fff;
 }
 
-.eg-class-header-inner {
+.essayguard-class-header-inner {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
 }
 
-.eg-class-title {
+.essayguard-class-title {
     margin: 0;
     font-size: 1.35rem;
     font-weight: 700;
     color: #fff;
 }
 
-.eg-class-meta {
+.essayguard-class-meta {
     margin: 0;
     font-size: 0.82rem;
     color: rgba(255, 255, 255, 0.80);
@@ -455,7 +446,7 @@
     gap: 0.5rem;
 }
 
-.eg-version-badge {
+.essayguard-version-badge {
     background: rgba(255, 255, 255, 0.18);
     border: 1px solid rgba(255, 255, 255, 0.30);
     color: #fff;
@@ -466,18 +457,18 @@
     white-space: nowrap;
 }
 
-.eg-back-btn {
+.essayguard-back-btn {
     color: #fff;
     font-size: 0.82rem;
     text-decoration: none;
     white-space: nowrap;
 }
-.eg-back-btn:hover {
+.essayguard-back-btn:hover {
     color: #fff;
     text-decoration: underline;
 }
 
-.eg-class-subtitle {
+.essayguard-class-subtitle {
     margin: 0 0 1.25rem;
     font-size: 0.88rem;
     color: #6b7280;
@@ -485,27 +476,27 @@
 
 /* ── Stat cards ──────────────────────────────────────────────────────────── */
 
-.eg-stat-cards {
+.essayguard-stat-cards {
     display: flex;
     gap: 0.75rem;
     flex-wrap: wrap;
     margin-bottom: 1.75rem;
 }
 
-.eg-stat-card {
+.essayguard-stat-card {
     padding: 0.75rem 1.25rem;
     border-radius: 6px;
     min-width: 110px;
     text-align: center;
 }
 
-.eg-stat-num {
+.essayguard-stat-num {
     font-size: 1.9rem;
     font-weight: 700;
     line-height: 1.1;
 }
 
-.eg-stat-label {
+.essayguard-stat-label {
     font-size: 0.78rem;
     opacity: 0.85;
     margin-top: 2px;
@@ -513,7 +504,7 @@
 
 /* ── Section headings ────────────────────────────────────────────────────── */
 
-.eg-section-heading {
+.essayguard-section-heading {
     font-size: 1rem;
     font-weight: 700;
     color: #c2410c;
@@ -522,16 +513,16 @@
 
 /* ── Submissions table ───────────────────────────────────────────────────── */
 
-.eg-class-table {
+.essayguard-class-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-.eg-class-table thead tr {
+.essayguard-class-table thead tr {
     border-bottom: 2px solid #e5e7eb;
 }
 
-.eg-class-table thead th {
+.essayguard-class-table thead th {
     padding: 0.6rem 0.75rem;
     text-align: left;
     font-size: 0.82rem;
@@ -540,21 +531,21 @@
     white-space: nowrap;
 }
 
-.eg-class-table tbody tr {
+.essayguard-class-table tbody tr {
     border-bottom: 1px solid #f3f4f6;
 }
 
-.eg-class-table tbody tr:hover {
+.essayguard-class-table tbody tr:hover {
     background: #f9fafb;
 }
-.eg-class-table tbody tr.essayguard-row-high {
+.essayguard-class-table tbody tr.essayguard-row-high {
     background: #fff5f5;
 }
-.eg-class-table tbody tr.essayguard-row-high:hover {
+.essayguard-class-table tbody tr.essayguard-row-high:hover {
     background: #fee2e2;
 }
 
-.eg-class-table tbody td {
+.essayguard-class-table tbody td {
     padding: 0.65rem 0.75rem;
     vertical-align: middle;
     font-size: 0.88rem;
@@ -562,10 +553,10 @@
 
 /* ── Per-question breakdown rows ─────────────────────────────────────────── */
 
-.eg-perq-row {
+.essayguard-perq-row {
     background: #fafafa;
 }
-.eg-perq-label {
+.essayguard-perq-label {
     padding-left: 2.5rem;
     color: #6b7280;
     font-size: 0.85rem;
@@ -573,7 +564,7 @@
 
 /* ── Score badge ─────────────────────────────────────────────────────────── */
 
-.eg-score-badge {
+.essayguard-score-badge {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
@@ -581,22 +572,22 @@
     font-size: 0.85rem;
     white-space: nowrap;
 }
-.eg-score-badge-low {
+.essayguard-score-badge-low {
     background: #f0fdf4;
     color: #166534;
 }
-.eg-score-badge-medium {
+.essayguard-score-badge-medium {
     background: #fff7ed;
     color: #7c2d12;
 }
-.eg-score-badge-high {
+.essayguard-score-badge-high {
     background: #fef2f2;
     color: #991b1b;
 }
 
 /* ── Action button ───────────────────────────────────────────────────────── */
 
-.eg-action-btn {
+.essayguard-action-btn {
     display: inline-block;
     padding: 3px 10px;
     border: 1px solid #d1d5db;
@@ -607,7 +598,7 @@
     white-space: nowrap;
     background: #fff;
 }
-.eg-action-btn:hover {
+.essayguard-action-btn:hover {
     background: #f3f4f6;
     border-color: #9ca3af;
     color: #111827;
@@ -615,57 +606,57 @@
 
 /* ── Student name / email ────────────────────────────────────────────────── */
 
-.eg-student-name {
+.essayguard-student-name {
     font-weight: 600;
     color: #111827;
     text-decoration: none;
     font-size: 0.88rem;
 }
-.eg-student-name:hover {
+.essayguard-student-name:hover {
     text-decoration: underline;
 }
-.eg-student-name-plain {
+.essayguard-student-name-plain {
     font-weight: 600;
     font-size: 0.88rem;
 }
 
-.eg-student-email {
+.essayguard-student-email {
     color: #9ca3af;
     font-size: 0.78rem;
 }
 
 /* ── Misc ────────────────────────────────────────────────────────────────── */
 
-.eg-center {
+.essayguard-center {
     text-align: center;
 }
-.eg-ts {
+.essayguard-ts {
     font-size: 0.82rem;
     white-space: nowrap;
 }
-.eg-muted {
+.essayguard-muted {
     color: #9ca3af;
 }
 
 /* ── Similarity / Cross-Student section ─────────────────────────────────── */
 
-.eg-similarity-note {
+.essayguard-similarity-note {
     font-size: 0.88rem;
     color: #555;
     margin-bottom: 0.75rem;
 }
 
-.eg-no-similarity {
+.essayguard-no-similarity {
     color: #6b7280;
     font-style: italic;
 }
 
-.eg-similarity-table {
+.essayguard-similarity-table {
     width: 100%;
     border-collapse: collapse;
 }
 
-.eg-similarity-table thead th {
+.essayguard-similarity-table thead th {
     padding: 0.55rem 0.75rem;
     text-align: left;
     font-size: 0.82rem;
@@ -674,21 +665,21 @@
     border-bottom: 2px solid #e5e7eb;
 }
 
-.eg-similarity-table tbody td {
+.essayguard-similarity-table tbody td {
     padding: 0.6rem 0.75rem;
     font-size: 0.88rem;
     border-bottom: 1px solid #f3f4f6;
     vertical-align: middle;
 }
 
-.eg-signal-label {
+.essayguard-signal-label {
     color: #374151;
     font-size: 0.85rem;
 }
 
 /* ── Debug bar ───────────────────────────────────────────────────────────── */
 
-.eg-debug-bar {
+.essayguard-debug-bar {
     margin-top: 2rem;
     padding-top: 0.75rem;
     border-top: 1px solid #e5e7eb;
@@ -696,11 +687,11 @@
     color: #9ca3af;
 }
 
-.eg-debug-link {
+.essayguard-debug-link {
     color: #9ca3af;
     text-decoration: underline;
 }
-.eg-debug-link:hover {
+.essayguard-debug-link:hover {
     color: #6b7280;
 }
 
@@ -768,15 +759,15 @@ body.dark .essayguard-badge-dot-unmeasured {
 }
 
 /* Floating class-report button on quiz pages. */
-.eg-footer-report {
+.essayguard-footer-report {
     position: fixed;
     top: 80px;
     right: 0;
     z-index: 1030;
 }
-.eg-footer-report-link,
-.eg-footer-report-link:hover,
-.eg-footer-report-link:focus {
+.essayguard-footer-report-link,
+.essayguard-footer-report-link:hover,
+.essayguard-footer-report-link:focus {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -789,11 +780,11 @@ body.dark .essayguard-badge-dot-unmeasured {
     text-decoration: none;
     box-shadow: -2px 2px 6px rgba(0, 0, 0, 0.18);
 }
-.eg-footer-report-link .icon {
+.essayguard-footer-report-link .icon {
     color: #fff;
     margin-right: 0;
 }
-.eg-footer-report-count {
+.essayguard-footer-report-count {
     background: #fff;
     color: #6c3483;
     border-radius: 10px;
@@ -899,20 +890,20 @@ body.dark .essayguard-badge-dot-unmeasured {
     color: #991b1b;
 }
 /* Settings page licence panel. */
-.eg-settings-actions {
+.essayguard-settings-actions {
     margin-top: 0.75rem;
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
 }
-.eg-settings-price {
+.essayguard-settings-price {
     color: inherit;
     opacity: 0.85;
 }
 /* ── Class report (report.php) ───────────────────────────────────────────── */
 
-.eg-status-banner {
+.essayguard-status-banner {
     background: #fff7ed;
     border: 1px solid #fdba74;
     border-radius: 8px;
@@ -922,37 +913,37 @@ body.dark .essayguard-badge-dot-unmeasured {
     color: #7c2d12;
 }
 
-.eg-status-banner-list {
+.essayguard-status-banner-list {
     margin: 0.4rem 0 0 1.2rem;
     padding: 0;
 }
 
-.eg-stat-card-total {
+.essayguard-stat-card-total {
     background: #1e3a5f;
     color: #fff;
 }
-.eg-stat-card-high {
+.essayguard-stat-card-high {
     background: #b71c1c;
     color: #fff;
 }
-.eg-stat-card-medium {
+.essayguard-stat-card-medium {
     background: #e65100;
     color: #fff;
 }
-.eg-stat-card-low {
+.essayguard-stat-card-low {
     background: #2e7d32;
     color: #fff;
 }
-.eg-stat-card-notassessed {
+.essayguard-stat-card-notassessed {
     background: #555;
     color: #fff;
 }
 
-.essayguard-empty .eg-empty-text {
+.essayguard-empty .essayguard-empty-text {
     margin: 0 0 0.5rem;
 }
 
-.eg-rescore-prompt {
+.essayguard-rescore-prompt {
     margin-top: 0.75rem;
     padding: 0.75rem 1rem;
     background: #f5f3ff;
@@ -962,21 +953,21 @@ body.dark .essayguard-badge-dot-unmeasured {
     color: #4c1d95;
 }
 
-.eg-rescore-prompt .eg-rescore-link {
+.essayguard-rescore-prompt .essayguard-rescore-link {
     color: #6c3483;
     font-weight: 600;
 }
 
-.eg-section-heading.eg-section-heading-spaced {
+.essayguard-section-heading.essayguard-section-heading-spaced {
     margin-top: 2rem;
 }
 
-.eg-score-badge.eg-score-badge-sm {
+.essayguard-score-badge.essayguard-score-badge-sm {
     font-size: 0.8rem;
 }
 
 /* Unassessed question ("NO DATA") badges. */
-.eg-score-badge-nodata {
+.essayguard-score-badge-nodata {
     background: #f3f4f6;
     color: #4b5563;
 }
@@ -986,85 +977,85 @@ body.dark .essayguard-badge-dot-unmeasured {
     border-color: #d1d5db;
 }
 /* ── Rescore tool (rescore.php / templates/rescore*.mustache) ─────────────── */
-.eg-rescore-title {
+.essayguard-rescore-title {
     font-size: 1.4rem;
     font-weight: 700;
     margin: 1rem 0 0.25rem;
 }
-.eg-rescore-subtitle {
+.essayguard-rescore-subtitle {
     font-size: 0.88rem;
     margin: 0 0 1.5rem;
 }
-.eg-rescore-actions {
+.essayguard-rescore-actions {
     display: flex;
     gap: 10px;
     align-items: center;
     flex-wrap: wrap;
     margin-bottom: 1rem;
 }
-.eg-rescore-preview-heading {
+.essayguard-rescore-preview-heading {
     font-size: 1rem;
     font-weight: 600;
     margin: 1.5rem 0 0.5rem;
     color: #374151;
 }
-.eg-rescore-table {
+.essayguard-rescore-table {
     font-size: 0.87rem;
     margin-bottom: 1.5rem;
 }
-.eg-rescore-result {
+.essayguard-rescore-result {
     color: #374151;
 }
-.eg-rescore-result-low {
+.essayguard-rescore-result-low {
     color: #166534;
 }
-.eg-rescore-result-medium {
+.essayguard-rescore-result-medium {
     color: #7c2d12;
 }
-.eg-rescore-result-high {
+.essayguard-rescore-result-high {
     color: #991b1b;
 }
-.eg-rescore-result-skipped {
+.essayguard-rescore-result-skipped {
     color: #374151;
 }
-.eg-rescore-result-notext {
+.essayguard-rescore-result-notext {
     color: #6b7280;
 }
-.eg-rescore-result-error {
+.essayguard-rescore-result-error {
     color: #991b1b;
 }
 /* ── Student detail report (student.php / templates/student*.mustache) ───── */
 
-.eg-student-level-low {
+.essayguard-student-level-low {
     --eg-student-bg: #f0fdf4;
     --eg-student-text: #166534;
     --eg-student-bar: #22c55e;
     --eg-student-border: rgba(22, 101, 52, 0.2);
 }
-.eg-student-level-medium {
+.essayguard-student-level-medium {
     --eg-student-bg: #fff7ed;
     --eg-student-text: #7c2d12;
     --eg-student-bar: #f97316;
     --eg-student-border: rgba(124, 45, 18, 0.2);
 }
-.eg-student-level-high {
+.essayguard-student-level-high {
     --eg-student-bg: #fef2f2;
     --eg-student-text: #991b1b;
     --eg-student-bar: #ef4444;
     --eg-student-border: rgba(153, 27, 27, 0.2);
 }
-.eg-student-level-nodata {
+.essayguard-student-level-nodata {
     --eg-student-bg: #f3f4f6;
     --eg-student-text: #4b5563;
     --eg-student-bar: #9ca3af;
     --eg-student-border: rgba(75, 85, 99, 0.2);
 }
 
-.eg-student-back {
+.essayguard-student-back {
     margin-bottom: 1.5rem;
 }
 
-.eg-student-header {
+.essayguard-student-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
@@ -1072,17 +1063,17 @@ body.dark .essayguard-badge-dot-unmeasured {
     gap: 1rem;
     margin-bottom: 1.25rem;
 }
-.eg-student-title {
+.essayguard-student-title {
     margin: 0 0 0.25rem;
 }
-.eg-student-subtitle {
+.essayguard-student-subtitle {
     margin: 0;
     opacity: 0.75;
     font-size: 0.9rem;
 }
 
 /* Overall score card. */
-.eg-student-scorecard {
+.essayguard-student-scorecard {
     background: var(--eg-student-bg);
     border: 1px solid var(--eg-student-border);
     border-radius: 8px;
@@ -1093,30 +1084,30 @@ body.dark .essayguard-badge-dot-unmeasured {
     gap: 2rem;
     flex-wrap: wrap;
 }
-.eg-student-scorebox {
+.essayguard-student-scorebox {
     text-align: center;
 }
-.eg-student-bignum {
+.essayguard-student-bignum {
     font-size: 2.8rem;
     font-weight: 800;
     color: var(--eg-student-text);
 }
-.eg-student-outof {
+.essayguard-student-outof {
     font-size: 0.8rem;
     font-weight: 600;
     color: var(--eg-student-text);
 }
-.eg-student-scoremain {
+.essayguard-student-scoremain {
     flex: 1;
     min-width: 200px;
 }
-.eg-student-risklabel {
+.essayguard-student-risklabel {
     font-size: 1.2rem;
     font-weight: 700;
     color: var(--eg-student-text);
     margin-bottom: 0.25rem;
 }
-.eg-student-bar {
+.essayguard-student-bar {
     width: 100%;
     max-width: 300px;
     height: 10px;
@@ -1125,35 +1116,35 @@ body.dark .essayguard-badge-dot-unmeasured {
     overflow: hidden;
     margin-bottom: 0.35rem;
 }
-.eg-student-barfill {
+.essayguard-student-barfill {
     height: 100%;
     background: var(--eg-student-bar);
     border-radius: 5px;
 }
-.eg-student-meta {
+.essayguard-student-meta {
     font-size: 0.82rem;
     color: #6b7280;
 }
-.eg-student-legend {
+.essayguard-student-legend {
     font-size: 0.8rem;
     color: #6b7280;
     line-height: 1.9;
 }
-.eg-student-legend-low {
+.essayguard-student-legend-low {
     color: #166534;
     font-weight: 600;
 }
-.eg-student-legend-medium {
+.essayguard-student-legend-medium {
     color: #c2410c;
     font-weight: 600;
 }
-.eg-student-legend-high {
+.essayguard-student-legend-high {
     color: #991b1b;
     font-weight: 600;
 }
 
 /* Baseline confidence. */
-.eg-student-baseline {
+.essayguard-student-baseline {
     display: block;
     padding: 0.6rem 1rem;
     border-radius: 6px;
@@ -1161,90 +1152,90 @@ body.dark .essayguard-badge-dot-unmeasured {
     font-size: 0.85rem;
     max-width: 720px;
 }
-.eg-student-baseline-stable {
+.essayguard-student-baseline-stable {
     background: #e8f5e9;
 }
-.eg-student-baseline-preliminary {
+.essayguard-student-baseline-preliminary {
     background: #fffde7;
 }
-.eg-student-baseline-none {
+.essayguard-student-baseline-none {
     background: #f5f5f5;
 }
-.eg-student-baseline-key {
+.essayguard-student-baseline-key {
     font-weight: 600;
     color: #6b7280;
 }
-.eg-student-baseline-stable .eg-student-baseline-key {
+.essayguard-student-baseline-stable .essayguard-student-baseline-key {
     color: #166534;
 }
-.eg-student-baseline-preliminary .eg-student-baseline-key {
+.essayguard-student-baseline-preliminary .essayguard-student-baseline-key {
     color: #92400e;
 }
-.eg-student-baseline-value {
+.essayguard-student-baseline-value {
     color: #374151;
 }
-.eg-student-baseline-note {
+.essayguard-student-baseline-note {
     color: #374151;
     margin-top: 0.35rem;
 }
-.eg-student-baselinetable {
+.essayguard-student-baselinetable {
     max-width: 640px;
     margin-top: 0.6rem;
     font-size: 0.82rem;
 }
-.eg-student-baselinetable th,
-.eg-student-baselinetable td {
+.essayguard-student-baselinetable th,
+.essayguard-student-baselinetable td {
     padding: 0.3rem 0.6rem;
 }
-.eg-student-z {
+.essayguard-student-z {
     font-weight: 600;
 }
 
 /* Section headings, indicators, metrics. */
-.eg-student-h3 {
+.essayguard-student-h3 {
     margin-bottom: 0.75rem;
 }
-.eg-student-h3-signals {
+.essayguard-student-h3-signals {
     margin-top: 2rem;
     margin-bottom: 0.5rem;
 }
-.eg-student-h3-perq {
+.essayguard-student-h3-perq {
     margin-top: 2.5rem;
     margin-bottom: 0.5rem;
 }
-.eg-student-indicators {
+.essayguard-student-indicators {
     padding-left: 1.25rem;
     margin-bottom: 2rem;
 }
-.eg-student-indicators li {
+.essayguard-student-indicators li {
     margin-bottom: 0.35rem;
 }
-.eg-student-metrics {
+.essayguard-student-metrics {
     max-width: 520px;
 }
-.eg-student-metrics td {
+.essayguard-student-metrics td {
     padding: 0.4rem 0.75rem;
 }
-.eg-student-metriclabel {
+.essayguard-student-metriclabel {
     font-weight: 500;
 }
 
 /* Signal breakdown table. */
-.eg-student-nobreakdown {
+.essayguard-student-nobreakdown {
     color: #9ca3af;
     font-style: italic;
     font-size: 0.85rem;
 }
-.eg-student-signalnote {
+.essayguard-student-signalnote {
     font-size: 0.8rem;
     color: #6b7280;
     margin-bottom: 0.5rem;
 }
-.eg-student-statuskey {
+.essayguard-student-statuskey {
     font-size: 0.82rem;
     margin-bottom: 0.65rem;
 }
-.eg-student-statuskey > summary {
+.essayguard-student-statuskey > summary {
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -1258,10 +1249,10 @@ body.dark .essayguard-badge-dot-unmeasured {
     font-size: 0.8rem;
     list-style: none;
 }
-.eg-student-statuskey > summary::-webkit-details-marker {
+.essayguard-student-statuskey > summary::-webkit-details-marker {
     display: none;
 }
-.eg-student-statuskey-body {
+.essayguard-student-statuskey-body {
     margin-top: 0.4rem;
     padding: 0.65rem 0.9rem;
     background: #f9fafb;
@@ -1272,76 +1263,76 @@ body.dark .essayguard-badge-dot-unmeasured {
     flex-direction: column;
     gap: 0.5rem;
 }
-.eg-student-statuskey-item {
+.essayguard-student-statuskey-item {
     display: flex;
     gap: 0.65rem;
     align-items: baseline;
 }
-.eg-student-statuskey-term {
+.essayguard-student-statuskey-term {
     min-width: 72px;
     font-size: 0.8rem;
     font-weight: 600;
     white-space: nowrap;
     flex-shrink: 0;
 }
-.eg-student-statuskey-term-fired {
+.essayguard-student-statuskey-term-fired {
     font-weight: 700;
     color: #991b1b;
 }
-.eg-student-statuskey-term-silent {
+.essayguard-student-statuskey-term-silent {
     color: #9ca3af;
 }
-.eg-student-statuskey-term-applied {
+.essayguard-student-statuskey-term-applied {
     color: #b45309;
 }
-.eg-student-statuskey-desc {
+.essayguard-student-statuskey-desc {
     font-size: 0.82rem;
     color: #374151;
 }
 
-.eg-student-signals {
+.essayguard-student-signals {
     max-width: 800px;
 }
-.eg-student-signals th {
+.essayguard-student-signals th {
     padding: 0.4rem 0.75rem;
     white-space: nowrap;
 }
-.eg-student-signals td {
+.essayguard-student-signals td {
     padding: 0.4rem 0.75rem;
 }
-.eg-student-signals tr.eg-student-fired {
+.essayguard-student-signals tr.essayguard-student-fired {
     background: #fffbeb;
 }
-.eg-student-signals tr.eg-student-extra {
+.essayguard-student-signals tr.essayguard-student-extra {
     background: #fffbeb;
     border-top: 1px solid #e5e7eb;
 }
-.eg-student-signals tr.eg-student-total {
+.essayguard-student-signals tr.essayguard-student-total {
     background: #f9fafb;
     border-top: 2px solid #e5e7eb;
     font-weight: 700;
 }
-.eg-student-signum {
+.essayguard-student-signum {
     color: #9ca3af;
     font-size: 0.85rem;
 }
-.eg-student-signame-fired {
+.essayguard-student-signame-fired {
     font-weight: 600;
 }
-.eg-student-sigmax {
+.essayguard-student-sigmax {
     color: #9ca3af;
 }
-.eg-student-total .eg-student-sigmax {
+.essayguard-student-total .essayguard-student-sigmax {
     font-weight: 400;
 }
-.eg-student-pts {
+.essayguard-student-pts {
     font-weight: 700;
     color: #991b1b;
 }
-.eg-student-pts-zero {
+.essayguard-student-pts-zero {
     color: #9ca3af;
 }
-.eg-student-statuspill {
+.essayguard-student-statuspill {
     display: inline-block;
     padding: 0.15rem 0.5rem;
     border-radius: 4px;
@@ -1350,43 +1341,43 @@ body.dark .essayguard-badge-dot-unmeasured {
     background: #fef2f2;
     color: #991b1b;
 }
-.eg-student-status-silent {
+.essayguard-student-status-silent {
     color: #d1d5db;
 }
-.eg-student-evidence {
+.essayguard-student-evidence {
     font-size: 0.82rem;
 }
-.eg-student-sigdesc {
+.essayguard-student-sigdesc {
     margin-top: 3px;
     color: #9ca3af;
     font-size: 0.77rem;
 }
-.eg-student-extradesc {
+.essayguard-student-extradesc {
     color: #6b7280;
 }
-.eg-student-finalscore {
+.essayguard-student-finalscore {
     font-weight: 700;
     color: var(--eg-student-text);
 }
-.eg-student-precap {
+.essayguard-student-precap {
     font-size: 0.8rem;
     color: #6b7280;
     font-weight: 400;
 }
 
 /* Per-question cards. */
-.eg-student-perqhelp {
+.essayguard-student-perqhelp {
     font-size: 0.85rem;
     color: #6b7280;
     margin-bottom: 1.25rem;
 }
-.eg-student-qcard {
+.essayguard-student-qcard {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     margin-bottom: 1rem;
     overflow: hidden;
 }
-.eg-student-qheader {
+.essayguard-student-qheader {
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -1396,11 +1387,11 @@ body.dark .essayguard-badge-dot-unmeasured {
     cursor: pointer;
     border-bottom: 1px solid #e5e7eb;
 }
-.eg-student-qheader:focus-visible {
+.essayguard-student-qheader:focus-visible {
     outline: 2px solid #2563eb;
     outline-offset: -2px;
 }
-.eg-student-qbadge {
+.essayguard-student-qbadge {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -1412,7 +1403,7 @@ body.dark .essayguard-badge-dot-unmeasured {
     color: var(--eg-student-text);
     border: 1px solid var(--eg-student-border);
 }
-.eg-student-qdot {
+.essayguard-student-qdot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
@@ -1420,10 +1411,10 @@ body.dark .essayguard-badge-dot-unmeasured {
     display: inline-block;
     flex-shrink: 0;
 }
-.eg-student-qtitle {
+.essayguard-student-qtitle {
     font-size: 0.95rem;
 }
-.eg-student-qstats {
+.essayguard-student-qstats {
     margin-left: auto;
     display: flex;
     align-items: center;
@@ -1431,23 +1422,23 @@ body.dark .essayguard-badge-dot-unmeasured {
     font-size: 0.83rem;
     color: #6b7280;
 }
-.eg-student-qscore {
+.essayguard-student-qscore {
     color: var(--eg-student-text);
 }
-.eg-student-qchevron {
+.essayguard-student-qchevron {
     display: inline-block;
 }
-.eg-student-qheader[aria-expanded="true"] .eg-student-qchevron {
+.essayguard-student-qheader[aria-expanded="true"] .essayguard-student-qchevron {
     transform: rotate(180deg);
 }
-.eg-student-qtexts {
+.essayguard-student-qtexts {
     padding: 0.85rem 1rem;
     border-bottom: 1px solid #f3f4f6;
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
 }
-.eg-student-qtextlabel {
+.essayguard-student-qtextlabel {
     font-size: 0.72rem;
     font-weight: 700;
     color: #9ca3af;
@@ -1455,31 +1446,31 @@ body.dark .essayguard-badge-dot-unmeasured {
     letter-spacing: 0.06em;
     margin-bottom: 0.3rem;
 }
-.eg-student-qtextbox {
+.essayguard-student-qtextbox {
     border-radius: 6px;
     padding: 0.65rem 0.9rem;
     font-size: 0.875rem;
     line-height: 1.65;
 }
-.eg-student-qtextbox-question {
+.essayguard-student-qtextbox-question {
     background: #f0f4ff;
     border: 1px solid #c7d2fe;
     color: #1e293b;
 }
-.eg-student-qtextbox-answer {
+.essayguard-student-qtextbox-answer {
     background: #f8fafc;
     border: 1px solid #e5e7eb;
     color: #374151;
 }
-.eg-student-moretoggle {
+.essayguard-student-moretoggle {
     font-size: 0.8rem;
     color: #6366f1;
     white-space: nowrap;
 }
-.eg-student-qbody {
+.essayguard-student-qbody {
     padding: 1rem;
 }
-.eg-student-nodatanotice {
+.essayguard-student-nodatanotice {
     background: #fffbeb;
     border: 1px solid #fde68a;
     border-radius: 6px;
@@ -1488,13 +1479,13 @@ body.dark .essayguard-badge-dot-unmeasured {
     font-size: 0.85rem;
     color: #92400e;
 }
-.eg-student-qbarrow {
+.essayguard-student-qbarrow {
     display: flex;
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 1rem;
 }
-.eg-student-qbar {
+.essayguard-student-qbar {
     flex: 1;
     max-width: 300px;
     height: 8px;
@@ -1502,16 +1493,16 @@ body.dark .essayguard-badge-dot-unmeasured {
     border-radius: 4px;
     overflow: hidden;
 }
-.eg-student-qbar .eg-student-barfill {
+.essayguard-student-qbar .essayguard-student-barfill {
     border-radius: 4px;
 }
-.eg-student-qscoreline {
+.essayguard-student-qscoreline {
     font-size: 0.82rem;
     color: #6b7280;
 }
 
 /* Interpretation guide. */
-.eg-student-guide {
+.essayguard-student-guide {
     background: #f9fafb;
     border: 1px solid #e5e7eb;
     border-radius: 6px;
@@ -1519,7 +1510,7 @@ body.dark .essayguard-badge-dot-unmeasured {
     margin-top: 2.5rem;
     font-size: 0.83rem;
 }
-.eg-student-guide ul {
+.essayguard-student-guide ul {
     margin: 0.5rem 0 0;
     padding-left: 1.25rem;
     color: #555;

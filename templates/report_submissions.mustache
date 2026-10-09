@@ -71,8 +71,8 @@
         ]
     }
 }}
-<h4 class="eg-section-heading">{{#str}}submissionsheading, plagiarism_essayguard{{/str}}</h4>
-<table class="generaltable eg-class-table">
+<h4 class="essayguard-section-heading">{{#str}}submissionsheading, plagiarism_essayguard{{/str}}</h4>
+<table class="generaltable essayguard-class-table">
     <thead>
         <tr>
             <th scope="col">{{#str}}colstudent, plagiarism_essayguard{{/str}}</th>
@@ -87,24 +87,24 @@
         {{#rows}}
         <tr{{#ishigh}} class="essayguard-row-high"{{/ishigh}}>
             <td>
-                <a href="{{profileurl}}" class="eg-student-name">{{fullname}}</a>
-                {{#showemail}}<br><small class="eg-student-email">{{email}}</small>{{/showemail}}
+                <a href="{{profileurl}}" class="essayguard-student-name">{{fullname}}</a>
+                {{#showemail}}<br><small class="essayguard-student-email">{{email}}</small>{{/showemail}}
             </td>
-            <td><span class="eg-score-badge eg-score-badge-{{level}}">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
+            <td><span class="essayguard-score-badge essayguard-score-badge-{{level}}">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
             <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
-            <td class="eg-center">{{qcount}}</td>
-            <td class="eg-ts">{{analysed}}</td>
-            <td><a href="{{detailurl}}" class="eg-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
+            <td class="essayguard-center">{{qcount}}</td>
+            <td class="essayguard-ts">{{analysed}}</td>
+            <td><a href="{{detailurl}}" class="essayguard-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
         </tr>
         {{#questions}}
-        <tr class="eg-perq-row">
-            <td class="eg-perq-label"><span aria-hidden="true">&#x21B3;</span> {{label}}</td>
+        <tr class="essayguard-perq-row">
+            <td class="essayguard-perq-label"><span aria-hidden="true">&#x21B3;</span> {{label}}</td>
             <td>
-                <span class="eg-score-badge eg-score-badge-sm eg-score-badge-{{level}}">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}/100 &nbsp;&nbsp;{{scorelabel}}</span>
+                <span class="essayguard-score-badge essayguard-score-badge-sm essayguard-score-badge-{{level}}">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}/100 &nbsp;&nbsp;{{scorelabel}}</span>
             </td>
             <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
-            <td class="eg-center eg-muted">&mdash;</td>
-            <td class="eg-ts eg-muted">&mdash;</td>
+            <td class="essayguard-center essayguard-muted">&mdash;</td>
+            <td class="essayguard-ts essayguard-muted">&mdash;</td>
             <td></td>
         </tr>
         {{/questions}}

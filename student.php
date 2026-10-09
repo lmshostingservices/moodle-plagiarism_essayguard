@@ -118,6 +118,20 @@ function plagiarism_essayguard_student_level_class(string $level): string {
 }
 
 /**
+ * Append a threshold note to a piece of evidence text, separated by a space.
+ *
+ * @param string $text The evidence text.
+ * @param string $threshold The threshold note, or '' for none.
+ * @return string
+ */
+function plagiarism_essayguard_student_append(string $text, string $threshold): string {
+    if ($threshold === '') {
+        return $text;
+    }
+    return $text === '' ? ' ' . $threshold : $text . ' ' . $threshold;
+}
+
+/**
  * Display label for a risk level (as used in the badges and headings).
  *
  * @param string $levelclass A value returned by plagiarism_essayguard_student_level_class().
@@ -175,7 +189,8 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $cps > 15
                     ? get_string('thr_speedsuperhuman', 'plagiarism_essayguard')
                     : ($cps > 8 ? get_string('thr_speedveryfast', 'plagiarism_essayguard') : '');
-                $parts[] = get_string('evidence_speed', 'plagiarism_essayguard', $cps) . $threshold;
+                $evidence = get_string('evidence_speed', 'plagiarism_essayguard', $cps);
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             break;
         case 4:
@@ -206,18 +221,20 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $es < 0.3
                     ? get_string('thr_entropyrobotic', 'plagiarism_essayguard')
                     : ($es < 0.5 ? get_string('thr_entropyborderline', 'plagiarism_essayguard') : '');
-                $parts[] = get_string(
+                $evidence = get_string(
                     'evidence_entropyscore',
                     'plagiarism_essayguard',
                     number_format($es, 3)
-                ) . $threshold;
+                );
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             if (isset($m['iki_shannon'])) {
                 $iki = round((float)$m['iki_shannon'], 3);
                 $threshold2 = $iki < 0.35
                     ? get_string('thr_ikifired', 'plagiarism_essayguard')
                     : ($iki < 0.55 ? get_string('thr_ikiborderline', 'plagiarism_essayguard') : '');
-                $parts[] = get_string('evidence_shannoniki', 'plagiarism_essayguard', $iki) . $threshold2;
+                $evidence = get_string('evidence_shannoniki', 'plagiarism_essayguard', $iki);
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold2);
             }
             break;
         case 8:
@@ -226,11 +243,12 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $sv < 6
                     ? get_string('thr_varveryuniform', 'plagiarism_essayguard')
                     : ($sv < 12 ? get_string('thr_varsomewhatuniform', 'plagiarism_essayguard') : '');
-                $parts[] = get_string(
+                $evidence = get_string(
                     'evidence_sentencevariance',
                     'plagiarism_essayguard',
                     number_format($sv, 3)
-                ) . $threshold;
+                );
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             $scling = isset($m['sentence_count_ling']) ? (int)$m['sentence_count_ling'] : null;
             if ($scling !== null) {
@@ -243,11 +261,12 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $vd < 0.30
                     ? get_string('thr_ttrverylow', 'plagiarism_essayguard')
                     : ($vd < 0.40 ? get_string('thr_ttrlow', 'plagiarism_essayguard') : '');
-                $parts[] = get_string(
+                $evidence = get_string(
                     'evidence_typetoken',
                     'plagiarism_essayguard',
                     number_format($vd, 3)
-                ) . $threshold;
+                );
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             break;
         case 10:
@@ -263,7 +282,7 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                     (object) [
                         'value' => $ac,
                         'dev' => $dev,
-                        'threshold' => $threshold,
+                        'threshold' => ($threshold === '' ? '' : ' ' . $threshold),
                     ]
                 );
             }
@@ -281,7 +300,8 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $cv < 0.30
                     ? get_string('thr_cvconstant', 'plagiarism_essayguard')
                     : ($cv < 0.50 ? get_string('thr_cvlowvariation', 'plagiarism_essayguard') : '');
-                $parts[] = get_string('evidence_speedcv', 'plagiarism_essayguard', $cv) . $threshold;
+                $evidence = get_string('evidence_speedcv', 'plagiarism_essayguard', $cv);
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             break;
         case 12:
@@ -291,7 +311,7 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                     ? get_string('thr_krfired', 'plagiarism_essayguard')
                     : ($kr < 0.8 ? get_string('thr_krlow', 'plagiarism_essayguard') : '');
                 $parts[] = get_string('evidence_keystrokeratiochars', 'plagiarism_essayguard', $kr)
-                    . $threshold;
+                    . plagiarism_essayguard_student_append('', $threshold);
             }
             break;
         case 13:
@@ -300,7 +320,8 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
                 $threshold = $scps > 10
                     ? get_string('thr_scpsimpossible', 'plagiarism_essayguard')
                     : ($scps > 4 ? get_string('thr_scpsveryfast', 'plagiarism_essayguard') : '');
-                $parts[] = get_string('evidence_servercps', 'plagiarism_essayguard', $scps) . $threshold;
+                $evidence = get_string('evidence_servercps', 'plagiarism_essayguard', $scps);
+                $parts[] = plagiarism_essayguard_student_append($evidence, $threshold);
             }
             break;
     }
@@ -672,8 +693,8 @@ foreach ($perquestion as $slot => $qsc) {
 
     $data['questions'][] = [
         'slot'         => (int)$slot,
-        'cardid'       => 'eg-q-card-' . $slot,
-        'bodyid'       => 'eg-q-body-' . $slot,
+        'cardid'       => 'essayguard-q-card-' . $slot,
+        'bodyid'       => 'essayguard-q-body-' . $slot,
         'level'        => $qlevel,
         'badgelabel'   => core_text::strtoupper($qlabel),
         'title'        => get_string('questionlabel', 'plagiarism_essayguard', (int)$slot),
@@ -693,14 +714,14 @@ foreach ($perquestion as $slot => $qsc) {
         'questiontext' => $qttext !== '' ? plagiarism_essayguard_truncated_text_context(
             $qttext,
             400,
-            'eg-qt-' . $slot,
+            'essayguard-qt-' . $slot,
             get_string('moreword', 'plagiarism_essayguard'),
             get_string('lessword', 'plagiarism_essayguard')
         ) : false,
         'answertext'   => $anstext !== '' ? plagiarism_essayguard_truncated_text_context(
             $anstext,
             600,
-            'eg-ans-' . $slot,
+            'essayguard-ans-' . $slot,
             get_string('showmore', 'plagiarism_essayguard'),
             get_string('showless', 'plagiarism_essayguard')
         ) : false,

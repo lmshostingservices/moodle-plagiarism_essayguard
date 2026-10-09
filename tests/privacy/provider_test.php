@@ -39,6 +39,7 @@ use core_privacy\local\request\writer;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @covers     \plagiarism_essayguard\privacy\provider
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\privacy\provider::class)]
 final class provider_test extends \core_privacy\tests\provider_testcase {
     use \essayguard_test_helper;
 

@@ -225,7 +225,9 @@ foreach ($display as $sc) {
         $qscore  = isset($r->riskscore) ? (int)round((float)$r->riskscore * 100) : 0;
         $qlevel  = analyser::risk_level($qscore);
         $qrisk   = core_text::strtoupper($risklabels[$qlevel] ?? $risklabels['low']);
-        $qlabel  = $qrisk . ($isaggregatefallback ? get_string('overallsuffix', 'plagiarism_essayguard') : '');
+        $qlabel  = $isaggregatefallback
+            ? core_text::strtoupper(get_string('riskoverall', 'plagiarism_essayguard', $qrisk))
+            : $qrisk;
 
         // Never badge an unassessed question as LOW.
         $qunmeasured = plagiarism_essayguard_is_unmeasured($r);

@@ -58,10 +58,10 @@ require_once(__DIR__ . '/../../lib.php');
  */
 class finalize_attempt extends external_api {
     /** @var int Maximum characters of submitted text accepted for analysis. */
-    const MAX_FINALTEXT_LEN = 50000;
+    public const MAX_FINALTEXT_LEN = 50000;
 
     /** @var int Minimum seconds between finalize calls for one user and activity. */
-    const FINALIZE_THROTTLE_SECONDS = 10;
+    public const FINALIZE_THROTTLE_SECONDS = 10;
 
     /**
      * Describe the arguments accepted by the finalize_attempt web service.

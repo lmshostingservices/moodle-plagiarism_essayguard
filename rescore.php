@@ -196,7 +196,7 @@ if (!empty($quizattempts)) {
 $results = [];
 $rundone = false;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && optional_param('action', '', PARAM_ALPHA) === 'rescore') {
+if (data_submitted() && optional_param('action', '', PARAM_ALPHA) === 'rescore') {
     require_sesskey();
 
     // Release session lock before long-running scoring loop.
@@ -315,20 +315,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && optional_param('action', '', PARAM_
 
                 $pct   = (int)round((float)($result['riskscore'] ?? 0) * 100);
                 $level = $result['risklevel'] ?? 'low';
-                $qlabel = !empty($scoredslots)
-                    ? get_string(
-                        'rescore_detailslots',
-                        'plagiarism_essayguard',
-                        implode(', Q', $scoredslots)
-                    )
-                    : get_string('rescore_detailaggregateonly', 'plagiarism_essayguard');
+                $levelkey = in_array($level, ['low', 'medium', 'high'], true) ? $level : 'medium';
+                $detail = (object)[
+                    'level' => core_text::strtoupper(get_string('risk' . $levelkey, 'plagiarism_essayguard')),
+                    'pct'   => $pct,
+                    'slots' => implode(', Q', $scoredslots),
+                ];
+                $detailkey = !empty($scoredslots) ? 'rescore_detailscoredslots' : 'rescore_detailscoredaggregate';
 
                 $detailrows[] = ['name' => $name, 'qaid' => $qaid, 'status' => $level,
-                    'detail' => get_string('rescore_detailscored', 'plagiarism_essayguard', (object)[
-                        'level' => strtoupper($level),
-                        'pct'   => $pct,
-                        'slots' => $qlabel,
-                    ])];
+                    'detail' => get_string($detailkey, 'plagiarism_essayguard', $detail)];
             } catch (\Throwable $e) {
                 $errors++;
                 $detailrows[] = ['name' => $name, 'qaid' => $qaid, 'status' => 'error',
@@ -383,12 +379,12 @@ $data = [
 if ($rundone) {
     // Map known result states to CSS modifiers; anything else falls back to the default colour.
     $statusclasses = [
-        'low'     => 'eg-rescore-result-low',
-        'medium'  => 'eg-rescore-result-medium',
-        'high'    => 'eg-rescore-result-high',
-        'skipped' => 'eg-rescore-result-skipped',
-        'no_text' => 'eg-rescore-result-notext',
-        'error'   => 'eg-rescore-result-error',
+        'low'     => 'essayguard-rescore-result-low',
+        'medium'  => 'essayguard-rescore-result-medium',
+        'high'    => 'essayguard-rescore-result-high',
+        'skipped' => 'essayguard-rescore-result-skipped',
+        'no_text' => 'essayguard-rescore-result-notext',
+        'error'   => 'essayguard-rescore-result-error',
     ];
     $rows = [];
     foreach ($results['rows'] as $row) {

@@ -39,17 +39,20 @@ use plagiarism_essayguard\task\rescore_pending;
  * @covers     \plagiarism_essayguard\task\rescore_pending
  * @covers     \plagiarism_essayguard\task\refresh_licence
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\task\cleanup::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\task\rescore_pending::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\plagiarism_essayguard\task\refresh_licence::class)]
 final class task_test extends \advanced_testcase {
     use \essayguard_test_helper;
 
     /** @var int The student the fixtures belong to. */
-    const USERID = 9001;
+    public const USERID = 9001;
 
     /** @var int The course module the fixtures belong to. */
-    const CMID = 9002;
+    public const CMID = 9002;
 
     /** @var int The module context the fixtures belong to. */
-    const CONTEXTID = 9003;
+    public const CONTEXTID = 9003;
 
     /**
      * Run a task and return everything it printed, so mtrace output is asserted on

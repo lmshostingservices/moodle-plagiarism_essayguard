@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * plagiarism_essayguard file.
+ * Scheduled task that prunes old Essay Guard telemetry and orphaned writing baselines.
  *
  * @package    plagiarism_essayguard
  * @copyright  2026 LMS-Labs
@@ -39,10 +39,10 @@ namespace plagiarism_essayguard\task;
  */
 class cleanup extends \core\task\scheduled_task {
     /** @var int Rows deleted per statement. */
-    const DELETE_BATCH_SIZE = 10000;
+    public const DELETE_BATCH_SIZE = 10000;
 
     /** @var int Seconds this task will spend deleting before deferring the rest. */
-    const MAX_RUNTIME_SECONDS = 120;
+    public const MAX_RUNTIME_SECONDS = 120;
 
     /**
      * Name shown for this task on the scheduled tasks admin page.

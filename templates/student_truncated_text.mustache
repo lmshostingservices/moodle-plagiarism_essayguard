@@ -35,7 +35,7 @@
 
     Example context (json):
     {
-        "id": "eg-ans-3",
+        "id": "essayguard-ans-3",
         "islong": true,
         "short": "Assessment must be valid, reliable, flexible and fair. Valid means",
         "full": "Assessment must be valid, reliable, flexible and fair. Valid means the assessment measures what it claims to measure.",
@@ -44,8 +44,8 @@
     }
 }}
 <span data-region="plagiarism_essayguard-student-truncated">
-    <span id="{{id}}-short" data-region="short">{{short}}{{#islong}}&hellip; <a href="#" class="eg-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="full" aria-controls="{{id}}-full" aria-expanded="false">{{morelabel}}</a>{{/islong}}</span>
+    <span id="{{id}}-short" data-region="short">{{short}}{{#islong}}&hellip; <a href="#" class="essayguard-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="full" aria-controls="{{id}}-full" aria-expanded="false">{{morelabel}}</a>{{/islong}}</span>
     {{#islong}}
-    <span id="{{id}}-full" data-region="full" hidden>{{full}} <a href="#" class="eg-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="short" aria-controls="{{id}}-full" aria-expanded="true">{{lesslabel}}</a></span>
+    <span id="{{id}}-full" data-region="full" hidden>{{full}} <a href="#" class="essayguard-student-moretoggle" role="button" data-action="plagiarism_essayguard-student-toggletext" data-show="short" aria-controls="{{id}}-full" aria-expanded="true">{{lesslabel}}</a></span>
     {{/islong}}
 </span>

@@ -33,6 +33,8 @@ require_once($CFG->dirroot . '/course/lib.php');
  * @covers     \backup_plagiarism_essayguard_plugin
  * @covers     \restore_plagiarism_essayguard_plugin
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\backup_plagiarism_essayguard_plugin::class)]
+#[\PHPUnit\Framework\Attributes\CoversClass(\restore_plagiarism_essayguard_plugin::class)]
 final class backup_restore_test extends \advanced_testcase {
     use \essayguard_test_helper;
 
@@ -54,6 +56,7 @@ final class backup_restore_test extends \advanced_testcase {
      * @param bool $enabled The setting on the original activity.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('states_provider')]
     public function test_duplicate_keeps_the_setting(bool $enabled): void {
         global $DB;
         $this->resetAfterTest();
@@ -64,7 +67,12 @@ final class backup_restore_test extends \advanced_testcase {
         $course = $DB->get_record('course', ['id' => $act['course']->id]);
         $cm = get_fast_modinfo($course)->get_cm($act['cm']->id);
 
-        $newcm = duplicate_module($course, $cm);
+        // Moodle 5.2 replaced duplicate_module() with cmactions::duplicate().
+        if (method_exists(\core_courseformat\local\cmactions::class, 'duplicate')) {
+            $newcm = (new \core_courseformat\local\cmactions($course))->duplicate((int)$cm->id);
+        } else {
+            $newcm = duplicate_module($course, $cm);
+        }
 
         $this->assertNotEquals($act['cm']->id, $newcm->id);
         $this->assertSame($enabled, plagiarism_essayguard_is_cm_active((int)$newcm->id));
@@ -79,6 +87,7 @@ final class backup_restore_test extends \advanced_testcase {
      * @param bool $enabled The setting on the original activity.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('states_provider')]
     public function test_course_restore_keeps_the_setting(bool $enabled): void {
         global $USER;
         $this->resetAfterTest();

@@ -37,6 +37,11 @@ require_once($CFG->dirroot . '/plagiarism/essayguard/lib.php');
  * @covers     ::plagiarism_essayguard_user_preferences
  * @covers     ::plagiarism_essayguard_render_badge
  */
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_config_int')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_supports_mod')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_pref_never_writable')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_user_preferences')]
+#[\PHPUnit\Framework\Attributes\CoversFunction('plagiarism_essayguard_render_badge')]
 final class lib_test extends \advanced_testcase {
     /**
      * A never-saved setting reads as bool false, not null and not the empty string.
@@ -66,6 +71,7 @@ final class lib_test extends \advanced_testcase {
      * @param int         $expected The value observed from the real function.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('config_int_provider')]
     public function test_config_int(?string $stored, int $default, int $expected): void {
         $this->resetAfterTest();
         if ($stored !== null) {
@@ -117,6 +123,7 @@ final class lib_test extends \advanced_testcase {
      * @param bool   $expected   Whether the plugin acts on it.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('supports_mod_provider')]
     public function test_supports_mod(string $modulename, bool $expected): void {
         $this->assertSame($expected, plagiarism_essayguard_supports_mod($modulename));
     }
@@ -192,6 +199,7 @@ final class lib_test extends \advanced_testcase {
      * @param string $expected The badge modifier class observed for that combination.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('badge_class_provider')]
     public function test_render_badge_class(string $status, string $level, string $expected): void {
         $html = plagiarism_essayguard_render_badge($status, 40.0, $level, 'boom', 7, 9, false, false);
         $this->assertStringStartsWith('<div class="essayguard-wrap">', $html);
@@ -261,6 +269,7 @@ final class lib_test extends \advanced_testcase {
      * @param array $expected The ids expected to remain.
      * @return void
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('attempts_after_provider')]
     public function test_attempts_after(array $ids, int $afterid, array $expected): void {
         $attempts = array_map(static fn($id) => (object)['id' => $id], $ids);
         $result = plagiarism_essayguard_attempts_after($attempts, $afterid);
