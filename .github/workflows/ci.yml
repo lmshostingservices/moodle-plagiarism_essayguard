@@ -7,6 +7,132 @@ permissions:
   contents: read
 
 jobs:
+  quicklinks-native-candidate:
+    # Draft visibility requires push permission. Isolate that token here:
+    # this job never executes plugin code, npm scripts or candidate tools.
+    if: github.event.repository.name == 'moodle-block_aiplugin_nav'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+        working-directory: .github/quicklinks-native-install
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Acquire original staged archive without publishing the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_ASSET_PREFIX: https://api.github.com/repos/${{ github.repository }}/releases/assets/
+        run: |
+          set -euo pipefail
+          url="$(cat candidate-asset-url.txt)"
+          # Never send the token to a candidate-controlled host or other repo.
+          asset="${url#"$EXPECTED_ASSET_PREFIX"}"
+          test "$url" != "$asset"
+          [[ "$asset" =~ ^[1-9][0-9]*$ ]]
+          # GitHub's asset API redirects to signed blob storage; curl does NOT
+          # forward Authorization across hosts (do not use --location-trusted).
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+            "$url" --output candidate.zip
+      - name: Verify original staged archive before dependency preparation
+        run: |
+          set -euo pipefail
+          test "$(wc -l < candidate.sha256)" = 1
+          grep -Ex '[a-f0-9]{64}' candidate.sha256
+          printf '%s  candidate.zip\n' "$(cat candidate.sha256)" | sha256sum --check --strict
+      - name: Pass verified original bytes to the unprivileged acceptance job
+        uses: actions/upload-artifact@v4
+        with:
+          name: quicklinks-native-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/quicklinks-native-install/candidate.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  quicklinks-native-install:
+    # Same workflow conclusion consumed by the existing immutable-tag release gate.
+    # No write credential reaches the code which installs or executes the plugin.
+    needs: quicklinks-native-candidate
+    if: github.event.repository.name == 'moodle-block_aiplugin_nav'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: .github/quicklinks-native-install
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: quicklinks-native-candidate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .github/quicklinks-native-install
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.4"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pgsql, pdo_pgsql, gd, intl, mbstring, curl, zip, soap, sodium, exif
+          ini-values: max_input_vars=5000
+          tools: composer
+          coverage: none
+      - name: Recheck transported candidate against the independently committed SHA
+        run: |
+          set -euo pipefail
+          test "$(wc -l < candidate.sha256)" = 1
+          grep -Ex '[a-f0-9]{64}' candidate.sha256
+          printf '%s  candidate.zip\n' "$(cat candidate.sha256)" | sha256sum --check --strict
+      - name: Prepare disposable Moodle 4.5 dependencies and PostgreSQL 16 binaries
+        run: |
+          set -euo pipefail
+          mkdir -p generated-artifacts/ci-evidence
+          # This is a binary install, not a shared database service. The harness
+          # creates/stops its own socket-only cluster as the unprivileged runner.
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16
+          npm ci --ignore-scripts --no-audit --no-fund
+          git clone --depth=1 --branch MOODLE_405_STABLE https://github.com/moodle/moodle.git generated-artifacts/moodle-source
+          git -C generated-artifacts/moodle-source rev-parse HEAD > generated-artifacts/ci-evidence/moodle-commit.txt
+          cp generated-artifacts/moodle-source/composer.lock generated-artifacts/ci-evidence/moodle-composer.lock
+          composer install --working-dir=generated-artifacts/moodle-source --no-interaction --prefer-dist 2>&1 | tee generated-artifacts/ci-evidence/composer.log
+          test -f generated-artifacts/moodle-source/vendor/autoload.php
+      - name: Required native acceptance of exact candidate ZIP
+        run: |
+          set -euo pipefail
+          npm run test:quicklinks-native-install -- \
+            --moodle-source="$PWD/generated-artifacts/moodle-source" \
+            --zip="$PWD/candidate.zip" \
+            --sha256="$(cat candidate.sha256)" \
+            --pg-bin=/usr/lib/postgresql/16/bin \
+            2>&1 | tee generated-artifacts/ci-evidence/native-install.log
+      - name: Preserve reports and logs on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quicklinks-native-install-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .github/quicklinks-native-install/candidate.sha256
+            .github/quicklinks-native-install/candidate-asset-url.txt
+            .github/quicklinks-native-install/candidate.zip
+            .github/quicklinks-native-install/generated-artifacts/ci-evidence/
+            .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/report.json
+            .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/inventory.json
+            .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/*.log
+          retention-days: 14
+          if-no-files-found: error
+      - name: Remove disposable Moodle code and database files
+        if: always()
+        run: rm -rf generated-artifacts
+
   test:
     runs-on: ubuntu-24.04
 

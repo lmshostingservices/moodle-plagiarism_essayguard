@@ -20,6 +20,7 @@
     Notice shown to students above a monitored submission form.
 
     Context variables required for this template:
+    * concise - Whether to show the one-sentence form with no heading.
     * paragraphs - List of notice paragraphs, each with a "text" property.
 
     Example context (json):
@@ -30,9 +31,13 @@
         ]
     }
 }}
-<div class="essayguard-disclosure" role="note">
-    <h3 class="essayguard-disclosure-heading">{{#str}}disclosure_heading, plagiarism_essayguard{{/str}}</h3>
-    {{#paragraphs}}
-        <p>{{text}}</p>
-    {{/paragraphs}}
+<div class="essayguard-disclosure{{#concise}} essayguard-disclosure-concise{{/concise}}" role="note">
+    <div class="essayguard-disclosure-body">
+        {{^concise}}
+        <h3 class="essayguard-disclosure-heading">{{#str}}disclosure_heading, plagiarism_essayguard{{/str}}</h3>
+        {{/concise}}
+        {{#paragraphs}}
+            <p>{{text}}</p>
+        {{/paragraphs}}
+    </div>
 </div>

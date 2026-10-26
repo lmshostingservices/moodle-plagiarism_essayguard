@@ -125,13 +125,14 @@ $form->set_data([
     'allowpaste'      => !empty($cfg->allowpaste),
     'paste_weight'    => plagiarism_essayguard_config_int('paste_weight', 100),
     'retentiondays'   => plagiarism_essayguard_config_int('retentiondays', 90),
+    'disclosurestyle' => $cfg->disclosurestyle ?? 'full',
 ]);
 
 if ($data = $form->get_data()) {
     $credentialschanged = ($data->siteid !== ($cfg->siteid ?? '')) || ($data->apikey !== ($cfg->apikey ?? ''));
     foreach (
         ['enabled', 'siteid', 'apikey', 'captureinterval', 'minchars', 'maxburstchars',
-            'allowpaste', 'paste_weight', 'retentiondays'] as $name
+            'allowpaste', 'paste_weight', 'retentiondays', 'disclosurestyle'] as $name
     ) {
         set_config($name, $data->$name, 'plagiarism_essayguard');
     }

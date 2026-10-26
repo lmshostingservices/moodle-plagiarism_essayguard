@@ -196,6 +196,28 @@ $rows = [];
 $highrisk = [];
 $analysedformat = get_string('report_strftimeanalysed', 'plagiarism_essayguard');
 
+// Column set for the matrix view: every question slot scored for anyone in this activity,
+// in slot order. The table shows one row per student and one column per question, so a
+// marker can scan down a question and see which learners stand out on it - which reading
+// the previous layout, with per-question rows indented under each student, did not allow.
+$allslots = [];
+foreach ($display as $sc) {
+    foreach (array_keys($sc->_perq) as $slot) {
+        if ((int)$slot > 0) {
+            $allslots[(int)$slot] = true;
+        }
+    }
+}
+ksort($allslots);
+$allslots = array_keys($allslots);
+
+$qcolumns = [];
+foreach ($allslots as $slot) {
+    $qcolumns[] = ['label' => get_string('questionlabel', 'plagiarism_essayguard', $slot)];
+}
+
+$notassessedcount = 0;
+
 foreach ($display as $sc) {
     $score     = (int)round($sc->_overall * 100);
     $level     = analyser::risk_level($score);
@@ -238,6 +260,7 @@ foreach ($display as $sc) {
         }
 
         $questions[] = [
+            'slot'       => (int)$slot,
             'label'      => get_string('questionlabel', 'plagiarism_essayguard', (int)$slot),
             'level'      => $qlevel,
             'score'      => $qscore,
@@ -247,7 +270,39 @@ foreach ($display as $sc) {
         ];
     }
 
+    // One cell per column, in the same order, so the matrix lines up even when a learner
+    // has no record for a question someone else was scored on.
+    $byslot = [];
+    foreach ($questions as $q) {
+        $byslot[$q['slot']] = $q;
+    }
+    $cells = [];
+    $anyassessed = false;
+    foreach ($allslots as $slot) {
+        if (isset($byslot[$slot]) && empty($byslot[$slot]['unmeasured'])) {
+            $anyassessed = true;
+            $cells[] = [
+                'level'    => $byslot[$slot]['level'],
+                'hasdata'  => true,
+                'badge'    => get_string('matrixbadge', 'plagiarism_essayguard', (object)[
+                    'level' => $risklabels[$byslot[$slot]['level']] ?? $risklabels['low'],
+                    'score' => $byslot[$slot]['score'],
+                ]),
+            ];
+        } else {
+            $cells[] = [
+                'level'   => 'nodata',
+                'hasdata' => false,
+                'badge'   => get_string('matrixbadgenodata', 'plagiarism_essayguard'),
+            ];
+        }
+    }
+    if (!$anyassessed) {
+        $notassessedcount++;
+    }
+
     $rows[] = [
+        'cells'      => $cells,
         'fullname'   => $fullname,
         'profileurl' => (new moodle_url('/user/view.php', ['id' => $sc->userid, 'course' => $course->id]))->out(false),
         'showemail'  => $showemail,
@@ -294,6 +349,15 @@ $templatedata = [
     'statcards'    => $statcards,
     'hasrows'      => !empty($rows),
     'rows'         => $rows,
+    'qcolumns'     => $qcolumns,
+    'hasqcolumns'  => !empty($qcolumns),
+    'notassessed'  => $notassessedcount > 0
+        ? get_string(
+            $notassessedcount === 1 ? 'reportnotassessedone' : 'reportnotassessed',
+            'plagiarism_essayguard',
+            $notassessedcount
+        )
+        : '',
     'isquiz'       => $cm->modname === 'quiz',
     'rescoreurl'   => (new moodle_url('/plagiarism/essayguard/rescore.php', ['cmid' => $cmid]))->out(false),
     'hashighrisk'  => !empty($highrisk),

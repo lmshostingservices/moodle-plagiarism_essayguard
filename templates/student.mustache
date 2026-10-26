@@ -182,6 +182,10 @@
             {{/explanations}}
         </ul>
         {{/hasexplanations}}
+        {{#hasheadlinemetrics}}
+        {{> plagiarism_essayguard/student_headline_metrics}}
+        {{/hasheadlinemetrics}}
+
 
         <h3 class="essayguard-student-h3">{{#str}}metricsheading, plagiarism_essayguard{{/str}}</h3>
         <table class="generaltable essayguard-student-metrics">
@@ -194,6 +198,10 @@
                 {{/metrics}}
             </tbody>
         </table>
+
+        {{#hastrend}}
+        {{> plagiarism_essayguard/student_trend}}
+        {{/hastrend}}
 
         <h3 class="essayguard-student-h3-signals">{{#str}}signalbreakdownheading, plagiarism_essayguard{{/str}}</h3>
         {{#signaltable}}

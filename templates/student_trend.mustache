@@ -1,0 +1,75 @@
+{{!
+    This file is part of Moodle - http://moodle.org/
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+}}
+{{!
+    @template plagiarism_essayguard/student_trend
+
+    This learner's score across their earlier assessed work in the same course.
+
+    Drawn only when there are at least two real points. There is no placeholder series:
+    the chart is an argument about a person and an invented point would be worse than no
+    chart at all.
+
+    Classes required for JS:
+    * none
+
+    Data attributes required for JS:
+    * none
+
+    Context variables required for this template:
+    * width - SVG width in user units.
+    * height - SVG height in user units.
+    * polyline - "x,y x,y" for the earlier work.
+    * prevx, prevy - Last earlier point, where the final segment starts.
+    * lastx, lasty - The current activity's point.
+    * rising - Whether the current score is higher than the previous one.
+    * points - Array of {x, y, score, label, iscurrent}.
+
+    Example context (json):
+    {
+        "width": 420, "height": 150,
+        "polyline": "22,120 122,118 222,112",
+        "prevx": 222, "prevy": 112, "lastx": 322, "lasty": 40, "rising": true,
+        "points": [
+            {"x": 22, "y": 120, "score": 12, "label": "Quiz 1", "iscurrent": false},
+            {"x": 322, "y": 40, "score": 78, "label": "This activity", "iscurrent": true}
+        ]
+    }
+}}
+<h4 class="essayguard-trend-heading">{{#str}}trend_heading, plagiarism_essayguard{{/str}}</h4>
+<div class="essayguard-trend">
+    <svg class="essayguard-trend-svg" viewBox="0 0 {{width}} {{height}}"
+        role="img" aria-labelledby="essayguard-trend-desc" preserveAspectRatio="xMidYMid meet">
+        <desc id="essayguard-trend-desc">{{#str}}trend_heading, plagiarism_essayguard{{/str}}:
+            {{#points}}{{label}} {{score}}. {{/points}}</desc>
+        <line class="essayguard-trend-axis" x1="0" y1="{{height}}" x2="{{width}}" y2="{{height}}"/>
+        <polyline class="essayguard-trend-line" points="{{polyline}}"/>
+        <line class="essayguard-trend-final{{#rising}} essayguard-trend-final-rising{{/rising}}"
+            x1="{{prevx}}" y1="{{prevy}}" x2="{{lastx}}" y2="{{lasty}}"/>
+        {{#points}}
+        <circle class="essayguard-trend-dot{{#iscurrent}} essayguard-trend-dot-current{{/iscurrent}}"
+            cx="{{x}}" cy="{{y}}" r="4"/>
+        {{/points}}
+    </svg>
+    <ol class="essayguard-trend-labels">
+        {{#points}}
+        <li class="essayguard-trend-label{{#iscurrent}} essayguard-trend-label-current{{/iscurrent}}">
+            <span class="essayguard-trend-label-name">{{label}}</span>
+            <span class="essayguard-trend-label-score">{{score}}</span>
+        </li>
+        {{/points}}
+    </ol>
+</div>

@@ -539,6 +539,18 @@ function plagiarism_essayguard_print_disclosure(int $cmid): string {
         ? get_string('disclosure_retention', 'plagiarism_essayguard', $retentiondays)
         : get_string('disclosure_retention_indefinite', 'plagiarism_essayguard');
 
+    // Concise mode is a single sentence, as the product reference shows. The default
+    // stays on the full notice: the short version does not tell a learner using dictation
+    // or predictive text that it produces the same patterns this tool looks for, and
+    // quietly dropping that on upgrade would weaken the disclosure on every live site.
+    // An administrator who wants the short form chooses it.
+    if (get_config('plagiarism_essayguard', 'disclosurestyle') === 'concise') {
+        return $OUTPUT->render_from_template('plagiarism_essayguard/disclosure', [
+            'concise'    => true,
+            'paragraphs' => [['text' => get_string('disclosure_concise', 'plagiarism_essayguard')]],
+        ]);
+    }
+
     $keys = ['disclosure_what', 'disclosure_why', 'disclosure_who'];
     $paragraphs = [];
     foreach ($keys as $key) {
@@ -749,6 +761,12 @@ function plagiarism_essayguard_inject_tracker() {
         // configuration feed to the client was not, so the two halves of the same plugin
         // disagreed about what a burst is on every site that had not saved its settings.
         'maxburstchars'  => plagiarism_essayguard_config_int('maxburstchars', 150),
+        // Diagnostic warnings about telemetry delivery are off unless the site is in
+        // developer debug mode. They name no learner content, but this module runs on the
+        // attempt page, so without the gate a student who opens the browser console is told
+        // when integrity telemetry is failing or dropping events - which is precisely when
+        // the monitoring is blind.
+        'debug'          => (bool)debugging('', DEBUG_DEVELOPER),
         // Translated badge and toast text; tracker.js substitutes the {placeholders}.
         'strings'        => [
             'pluginname'    => get_string('pluginname', 'plagiarism_essayguard'),

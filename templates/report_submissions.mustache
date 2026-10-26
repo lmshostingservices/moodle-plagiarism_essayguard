@@ -17,7 +17,11 @@
 {{!
     @template plagiarism_essayguard/report_submissions
 
-    Submissions table: one row per student with an indented row per scored question.
+    Submissions matrix: one row per student, one column per question.
+
+    Replaces the earlier layout, which put each question on its own indented row beneath
+    the student. That made it impossible to read down a question and see which learners
+    stand out on it, which is the comparison a marker actually wants.
 
     Classes required for JS:
     * none
@@ -26,88 +30,93 @@
     * none
 
     Context variables required for this template:
+    * qcolumns - Array of question columns, each with:
+        * label - Column heading, e.g. "Question 1".
+    * hasqcolumns - Whether any question columns exist.
+    * notassessed - Sentence naming how many learners have no data, or empty.
     * rows - Array of student rows, each with:
         * fullname - Student display name.
         * profileurl - URL of the student's course profile.
         * showemail - Whether the email identity field may be shown.
         * email - Student email address.
-        * level - Risk level key (low, medium, high).
         * ishigh - Whether the row is high risk (row highlight).
-        * score - Overall score 0-100.
-        * risklabel - Upper-case risk label.
-        * qcount - Number of questions scored.
-        * analysed - Formatted time of the last analysis.
         * detailurl - URL of the student report.
-        * questions - Array of per-question rows, each with:
-            * label - Question label.
+        * cells - Array of per-question cells in column order, each with:
             * level - Risk level key (low, medium, high, nodata).
-            * score - Question score 0-100.
-            * unmeasured - Whether no typing activity was captured.
-            * scorelabel - Label shown in the score badge.
-            * risklabel - Upper-case label shown in the risk badge.
+            * hasdata - Whether the question was assessed.
+            * badge - Badge text, e.g. "Essay Guard · High 78".
 
     Example context (json):
     {
+        "hasqcolumns": true,
+        "notassessed": "1 student not assessed",
+        "qcolumns": [{"label": "Question 1"}, {"label": "Question 2"}],
         "rows": [
             {
-                "fullname": "Ann Smith",
+                "fullname": "Tom Nguyen",
                 "profileurl": "https://example.com/user/view.php?id=3&course=2",
-                "showemail": true,
-                "email": "ann@example.com",
-                "level": "high",
+                "showemail": false,
+                "email": "",
                 "ishigh": true,
-                "score": 72,
-                "risklabel": "HIGH",
-                "qcount": 2,
-                "analysed": "07 Oct 2026 10:15",
                 "detailurl": "https://example.com/plagiarism/essayguard/student.php?cmid=5&userid=3",
-                "questions": [
-                    {"label": "Question 1", "level": "high", "score": 72, "unmeasured": false,
-                        "scorelabel": "HIGH", "risklabel": "HIGH"},
-                    {"label": "Question 2", "level": "nodata", "score": 0, "unmeasured": true,
-                        "scorelabel": "NO DATA", "risklabel": "NO DATA"}
+                "cells": [
+                    {"level": "high", "hasdata": true, "badge": "Essay Guard · High 78"},
+                    {"level": "nodata", "hasdata": false, "badge": "Essay Guard · Not assessed"}
                 ]
             }
         ]
     }
 }}
-<h4 class="essayguard-section-heading">{{#str}}submissionsheading, plagiarism_essayguard{{/str}}</h4>
-<table class="generaltable essayguard-class-table">
-    <thead>
-        <tr>
-            <th scope="col">{{#str}}colstudent, plagiarism_essayguard{{/str}}</th>
-            <th scope="col">{{#str}}colscore, plagiarism_essayguard{{/str}}</th>
-            <th scope="col">{{#str}}colrisk, plagiarism_essayguard{{/str}}</th>
-            <th scope="col">{{#str}}colquestions, plagiarism_essayguard{{/str}}</th>
-            <th scope="col">{{#str}}colanalysed, plagiarism_essayguard{{/str}}</th>
-            <th scope="col">{{#str}}colactions, plagiarism_essayguard{{/str}}</th>
-        </tr>
-    </thead>
-    <tbody>
-        {{#rows}}
-        <tr{{#ishigh}} class="essayguard-row-high"{{/ishigh}}>
-            <td>
-                <a href="{{profileurl}}" class="essayguard-student-name">{{fullname}}</a>
-                {{#showemail}}<br><small class="essayguard-student-email">{{email}}</small>{{/showemail}}
-            </td>
-            <td><span class="essayguard-score-badge essayguard-score-badge-{{level}}">{{score}}/100 &nbsp;&nbsp;{{risklabel}}</span></td>
-            <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
-            <td class="essayguard-center">{{qcount}}</td>
-            <td class="essayguard-ts">{{analysed}}</td>
-            <td><a href="{{detailurl}}" class="essayguard-action-btn">{{#str}}viewreport, plagiarism_essayguard{{/str}}</a></td>
-        </tr>
-        {{#questions}}
-        <tr class="essayguard-perq-row">
-            <td class="essayguard-perq-label"><span aria-hidden="true">&#x21B3;</span> {{label}}</td>
-            <td>
-                <span class="essayguard-score-badge essayguard-score-badge-sm essayguard-score-badge-{{level}}">{{#unmeasured}}&mdash;{{/unmeasured}}{{^unmeasured}}{{score}}{{/unmeasured}}/100 &nbsp;&nbsp;{{scorelabel}}</span>
-            </td>
-            <td><span class="essayguard-badge essayguard-badge-{{level}}">{{risklabel}}</span></td>
-            <td class="essayguard-center essayguard-muted">&mdash;</td>
-            <td class="essayguard-ts essayguard-muted">&mdash;</td>
-            <td></td>
-        </tr>
-        {{/questions}}
-        {{/rows}}
-    </tbody>
-</table>
+<div class="essayguard-report-head">
+    <h4 class="essayguard-section-heading">
+        <svg class="essayguard-shield-icon" width="17" height="17" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        {{#str}}essayguardreport, plagiarism_essayguard{{/str}}
+    </h4>
+    <p class="essayguard-report-standfirst">
+        {{#str}}reportsortnote, plagiarism_essayguard{{/str}}
+        {{#notassessed}} &middot; {{notassessed}}{{/notassessed}}
+        &middot; {{#str}}reportmeasurenote, plagiarism_essayguard{{/str}}
+    </p>
+</div>
+<div class="essayguard-table-scroll">
+    <table class="generaltable essayguard-class-table essayguard-matrix-table">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}}colstudent, plagiarism_essayguard{{/str}}</th>
+                {{#qcolumns}}
+                <th scope="col">{{label}}</th>
+                {{/qcolumns}}
+                {{^hasqcolumns}}
+                <th scope="col">{{#str}}colrisk, plagiarism_essayguard{{/str}}</th>
+                {{/hasqcolumns}}
+                <th scope="col"><span class="sr-only">{{#str}}colactions, plagiarism_essayguard{{/str}}</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#rows}}
+            <tr{{#ishigh}} class="essayguard-row-high"{{/ishigh}}>
+                <th scope="row" class="essayguard-matrix-student">
+                    <a href="{{profileurl}}" class="essayguard-student-name">{{fullname}}</a>
+                    {{#showemail}}<br><small class="essayguard-student-email">{{email}}</small>{{/showemail}}
+                </th>
+                {{#cells}}
+                <td>
+                    <span class="essayguard-pill essayguard-pill-{{level}}">
+                        <svg class="essayguard-pill-icon" width="11" height="11" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        {{badge}}
+                    </span>
+                </td>
+                {{/cells}}
+                <td class="essayguard-matrix-action">
+                    <a href="{{detailurl}}" class="essayguard-action-btn">{{#str}}viewdetail, plagiarism_essayguard{{/str}}</a>
+                </td>
+            </tr>
+            {{/rows}}
+        </tbody>
+    </table>
+</div>

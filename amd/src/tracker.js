@@ -46,6 +46,9 @@ define(['core/ajax'], function(Ajax) {
         timers: [],
         flushFailures: 0,
         queueDropped: 0,
+        // Off unless the server says the site is in developer debug mode. Declared here so
+        // a site whose PHP predates the flag stays silent rather than inheriting undefined.
+        debug: false,
         nextSeq: 1,
         // FIX-EG-TINYMCE-FINALIZE (v1.2.90): Registry of bound TinyMCE iframes.
         // The submit-time querySelectorAll('[data-essayguard-bound="1"]') runs on the
@@ -85,7 +88,7 @@ define(['core/ajax'], function(Ajax) {
     var reportFlushFailure = function(err) {
         state.flushFailures++;
         if (state.flushFailures === 1 || state.flushFailures % 10 === 0) {
-            if (typeof window !== 'undefined' && window.console && window.console.warn) {
+            if (state.debug && typeof window !== 'undefined' && window.console && window.console.warn) {
                 window.console.warn(
                     '[Essay Guard] telemetry flush failed (' + state.flushFailures +
                     ' failure(s), ' + state.queue.length + ' event(s) queued):',
@@ -112,7 +115,7 @@ define(['core/ajax'], function(Ajax) {
             var overflow = state.queue.length - MAX_QUEUE;
             state.queue.splice(0, overflow);
             state.queueDropped += overflow;
-            if (typeof window !== 'undefined' && window.console && window.console.warn) {
+            if (state.debug && typeof window !== 'undefined' && window.console && window.console.warn) {
                 window.console.warn(
                     '[Essay Guard] telemetry queue full — dropped ' + state.queueDropped +
                     ' oldest event(s). The server may be unreachable.'

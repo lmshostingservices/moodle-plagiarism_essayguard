@@ -250,6 +250,26 @@ function xmldb_plagiarism_essayguard_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026100800, 'plagiarism', 'essayguard');
     }
 
+    if ($oldversion < 2026102501) {
+        // Version 2.0.0: both collective caps now equal their own documented values.
+        //
+        // Two groups of signals are capped collectively. PASTE_DERIVED_CAP bounds Signals
+        // 3-7, five further descriptions of one paste; TEXTUAL_CAP bounds Signals 8, 9, 14
+        // and 15, which describe the prose rather than the person. Each group was scaled
+        // and rounded signal by signal, so the parts did not add up to the cap: the paste
+        // group summed to 26 at full weight and 24 at half against a cap of 25, and the
+        // textual group reached 21 against a cap of 20. A pure paste scored 86 where the
+        // documented ceiling was 85, and a breakdown that does not reconcile with the
+        // ceiling printed beside it cannot be defended in an audit. Largest-remainder
+        // apportionment, now shared by both call sites, makes each group total its cap
+        // exactly for any input.
+        //
+        // Scores already stored are left as they were: they are the record of what the
+        // teacher was shown at the time. Anything rescored afterwards moves by at most one
+        // point, and no risk band changes. No DB schema changes.
+        upgrade_plugin_savepoint(true, 2026102501, 'plagiarism', 'essayguard');
+    }
+
     return true;
 }
 

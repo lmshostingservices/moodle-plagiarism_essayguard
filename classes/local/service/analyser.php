@@ -1369,16 +1369,7 @@ class analyser {
                     $derivedtotal += (int)($signalpts[$dk] ?? 0);
                 }
                 if ($derivedtotal > self::PASTE_DERIVED_CAP) {
-                    $scale = self::PASTE_DERIVED_CAP / $derivedtotal;
-                    foreach ($derivedkeys as $dk) {
-                        if (!isset($signalpts[$dk])) {
-                            continue;
-                        }
-                        $was = (int)$signalpts[$dk];
-                        $now = (int)round($was * $scale);
-                        $signalpts[$dk] = $now;
-                        $score -= ($was - $now);
-                    }
+                    self::apply_cap($signalpts, $score, $derivedkeys, self::PASTE_DERIVED_CAP);
                     $metrics['paste_derived_capped'] = true;
                 }
             }
@@ -1746,16 +1737,12 @@ class analyser {
             $textualtotal += (int)($signalpts[$tk] ?? 0);
         }
         if ($textualtotal > \plagiarism_essayguard\local\signals::TEXTUAL_CAP) {
-            $scale = \plagiarism_essayguard\local\signals::TEXTUAL_CAP / $textualtotal;
-            foreach ($textualkeys as $tk) {
-                if (!isset($signalpts[$tk])) {
-                    continue;
-                }
-                $was = (int)$signalpts[$tk];
-                $now = (int)round($was * $scale);
-                $signalpts[$tk] = $now;
-                $score -= ($was - $now);
-            }
+            self::apply_cap(
+                $signalpts,
+                $score,
+                $textualkeys,
+                \plagiarism_essayguard\local\signals::TEXTUAL_CAP
+            );
             $metrics['textual_capped'] = true;
         }
 
@@ -2320,5 +2307,87 @@ class analyser {
             return 0.0;
         }
         return self::std_dev($wpmsnapshots) / $mu;
+    }
+
+    /**
+     * Scale a group of signals down so that together they total exactly $cap.
+     *
+     * FIX-EG-PASTE-CAP-OVERSHOOTS-ITSELF.
+     *
+     * Two groups of signals are capped collectively, because within each group the signals
+     * are not independent evidence: the paste-derived Signals 3-7 are five descriptions of
+     * one paste, and the textual Signals 8, 9, 14 and 15 all describe the prose rather than
+     * the person. Both caps used to scale each signal and round it on its own, so the
+     * rounded parts did not add up to the cap they were scaled to - the paste group summed
+     * to 26 against a cap of 25 at full weight and 24 at half, and the textual group reaches
+     * 21 against a cap of 20 for a 10/10/10/5 split. A cap that does not equal its own
+     * documented value cannot be defended in an audit, because the breakdown printed for a
+     * teacher does not reconcile with the ceiling printed beside it.
+     *
+     * Largest remainder instead: floor every share, then hand the points still owed to the
+     * signals with the largest discarded fractions. The parts then sum to exactly $cap for
+     * any input. On an exact tie the lower signal number is served first, so the result does
+     * not depend on the order the signals arrive in. A signal that scored nothing has no
+     * share and is never awarded one.
+     *
+     * Both call sites share this one implementation, so the two caps cannot drift apart
+     * again: the paste cap was fixed first and the textual cap kept the defect.
+     *
+     * @param array $signalpts The per-signal points, modified in place.
+     * @param int $score The running total, adjusted by whatever the cap removes.
+     * @param array $keys The signal numbers in the capped group.
+     * @param int $cap The points the group may total between them.
+     * @return void
+     */
+    private static function apply_cap(array &$signalpts, int &$score, array $keys, int $cap): void {
+        $total = 0;
+        foreach ($keys as $key) {
+            $total += (int)($signalpts[$key] ?? 0);
+        }
+        if ($total <= $cap || $total <= 0) {
+            return;
+        }
+
+        $scale = $cap / $total;
+        $floors = [];
+        $shares = [];
+        $awarded = 0;
+        foreach ($keys as $key) {
+            if (!isset($signalpts[$key])) {
+                continue;
+            }
+            $exact = (int)$signalpts[$key] * $scale;
+            $floors[$key] = (int)floor($exact);
+            $shares[$key] = $exact - $floors[$key];
+            $awarded += $floors[$key];
+        }
+
+        $remaining = $cap - $awarded;
+        if ($remaining > 0) {
+            $order = array_keys($shares);
+            usort($order, function ($a, $b) use ($shares) {
+                if ($shares[$b] === $shares[$a]) {
+                    return $a <=> $b;
+                }
+                return $shares[$b] <=> $shares[$a];
+            });
+            foreach ($order as $key) {
+                if ($remaining <= 0) {
+                    break;
+                }
+                // Never award a signal that did not fire: it has no fraction to round up.
+                if ($shares[$key] <= 0.0 && $floors[$key] === 0) {
+                    continue;
+                }
+                $floors[$key]++;
+                $remaining--;
+            }
+        }
+
+        foreach ($floors as $key => $now) {
+            $was = (int)$signalpts[$key];
+            $signalpts[$key] = $now;
+            $score -= ($was - $now);
+        }
     }
 }

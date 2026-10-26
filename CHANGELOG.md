@@ -1,5 +1,61 @@
 # Changelog
 
+## 2.0.0 - 2026-10-26
+
+**Both collective caps now equal their own documented values.** Version: `2026102501`. No
+database changes; the upgrade records the new version and does nothing else.
+
+This entry also covers the report work carried as 1.4.5, which was never released on its
+own.
+
+### Fixed
+
+- **A pure paste now scores exactly 85, not 86.** `PASTE_DERIVED_CAP` caps the combined
+  contribution of Signals 3 to 7 at 25, because those five are five further descriptions of
+  one paste rather than independent evidence. Each was scaled and rounded on its own, so the
+  rounded parts summed to 26 at full paste weight and to 24 at half — against a cap of 25. A
+  breakdown that does not reconcile with the ceiling printed beside it cannot be defended in
+  an audit. The shares are now apportioned by largest remainder, so they total the cap
+  exactly at every weight, and the order of the signals does not affect the total.
+- **The textual cap had the same defect.** Signals 8, 9, 14 and 15 all describe the prose
+  rather than the person, so they are capped collectively at 20 — deliberately below the
+  medium threshold, so that prose style can corroborate a behavioural finding but never
+  manufacture one. Rounded one by one, a 10 / 5 / 10 / 10 split summed to 21. Both caps now
+  share one apportionment, so they cannot drift apart again; the paste cap was fixed first
+  and this one kept the defect, which is exactly how that happens.
+- **Seven tests are no longer skipped.** They were parked pending a "scoring calibration
+  review", because it was not clear which total the cap intended. With the cap honoured the
+  question answers itself, so the expectations are recorded and the suite has no skips. Two
+  new tests pin the invariant: the capped signals total the cap, and the cap never awards
+  points to a signal that did not fire.
+
+- **Telemetry warnings no longer reach a student's browser console.** The tracker warned
+  through `window.console.warn` when a telemetry flush failed or the queue overflowed. The
+  messages name no learner content and Moodle's linter does not object to them, but this
+  module runs on the attempt page: a student who opened the console was told exactly when
+  integrity monitoring was failing or dropping events, which is exactly when it is blind.
+  The warnings now appear only when the site is in developer debug mode, and default to off
+  on a site whose PHP predates the flag.
+
+### Changed
+
+- Scores already stored are left as they are: they are the record of what the teacher was
+  shown at the time. A submission rescored after this upgrade moves by at most one point,
+  and no risk band changes.
+- **Report work carried from 1.4.5**: the submissions report is a matrix; a student's page
+  shows each signal's contribution, a trend across their attempts, and headline metrics; and
+  the disclosure notice has a concise form, selectable with the `disclosurestyle` setting.
+
+### Verified
+
+Installed and tested from scratch on **five** Moodle versions - 4.4.12+, 4.5.15+, 5.1.8+,
+5.2.4+ and 5.3 - each with its own database, its own PHPUnit and its own eslint config.
+
+- 312 tests, 931 assertions, no skips, on every one of the five. The two cap
+  tests were each confirmed to fail against the previous behaviour, reporting 26 against a
+  cap of 25 and 21 against a cap of 20, and to pass against this one.
+- No errors from the Moodle coding standard or from Moodle's eslint configuration.
+
 ## 1.4.4 - 2026-10-09
 
 **Student notice matches badge visibility**

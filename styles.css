@@ -1515,3 +1515,471 @@ body.dark .essayguard-badge-dot-unmeasured {
     padding-left: 1.25rem;
     color: #555;
 }
+
+/* ===========================================================================
+ * Class report matrix and signal contributions (v1.4.5)
+ *
+ * Added for the product reference screens. The report moved from one indented
+ * row per question to a matrix with a column per question, and the detail page
+ * leads with the four signal families before the numbered evidence table.
+ *
+ * Colours are the reference palette. No rule forces the cascade.
+ * ======================================================================== */
+
+.essayguard-report-head {
+    margin: 0 0 14px;
+}
+
+.essayguard-report-head .essayguard-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 4px;
+}
+
+.essayguard-shield-icon {
+    flex: none;
+    color: #1a73e8;
+}
+
+.essayguard-report-standfirst {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #5f6368;
+}
+
+.essayguard-table-scroll {
+    overflow-x: auto;
+}
+
+.essayguard-matrix-table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+}
+
+.essayguard-matrix-table th,
+.essayguard-matrix-table td {
+    padding: 11px 14px;
+    text-align: left;
+    vertical-align: middle;
+    border-bottom: 1px solid #e3e8ef;
+}
+
+.essayguard-matrix-table thead th {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #202124;
+    background: #f8f9fa;
+}
+
+.essayguard-matrix-student {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* The one row a marker should look at first is tinted, not only badged. */
+.essayguard-matrix-table tbody tr.essayguard-row-high {
+    background: #fdecea;
+}
+
+.essayguard-matrix-action {
+    text-align: right;
+}
+
+/* Risk pill. Reads "Essay Guard - High 78" behind a shield, as the reference shows. */
+.essayguard-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 11px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    border-radius: 999px;
+}
+
+.essayguard-pill-icon {
+    flex: none;
+}
+
+.essayguard-pill-low {
+    color: #1a7f3c;
+    background: #e8f7ee;
+    border-color: #b7e3c7;
+}
+
+.essayguard-pill-medium {
+    color: #8a4b06;
+    background: #fdf3e7;
+    border-color: #f6d9b0;
+}
+
+.essayguard-pill-high {
+    color: #a52318;
+    background: #fdecea;
+    border-color: #f5c2bd;
+}
+
+/* Never green. An unassessed question is not a clean one, and colouring it as though it
+   were is the single most misleading thing this report could do. */
+.essayguard-pill-nodata {
+    color: #5f6368;
+    background: #f1f3f5;
+    border-color: #d2d9e3;
+}
+
+.essayguard-action-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    color: #1a73e8;
+    background: #fff;
+    border: 1px solid #d2d9e3;
+    border-radius: 8px;
+}
+
+.essayguard-action-btn:hover,
+.essayguard-action-btn:focus {
+    color: #1765cc;
+    text-decoration: none;
+    background: #e8f0fe;
+    border-color: #c6dafc;
+}
+
+/* --- Signal contributions ------------------------------------------------ */
+
+.essayguard-contrib-heading {
+    margin: 0 0 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #202124;
+}
+
+.essayguard-contrib {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin: 0 0 14px;
+}
+
+.essayguard-contrib-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    align-items: center;
+}
+
+@media (min-width: 720px) {
+    .essayguard-contrib-row {
+        grid-template-columns: minmax(0, 1fr) minmax(140px, 2fr) 54px;
+        gap: 16px;
+    }
+}
+
+.essayguard-contrib-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.essayguard-contrib-label {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #202124;
+}
+
+.essayguard-contrib-sub {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #5f6368;
+}
+
+.essayguard-contrib-track {
+    height: 9px;
+    background: #e8eaed;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.essayguard-contrib-fill {
+    height: 9px;
+    border-radius: 999px;
+}
+
+/* One colour per family, so the bars are distinguishable at a glance and stay
+   distinguishable in the greyscale print an auditor may be handed. */
+.essayguard-contrib-fill-observed {
+    background: #d93025;
+}
+
+.essayguard-contrib-fill-behavioural {
+    background: #e8710a;
+}
+
+.essayguard-contrib-fill-style {
+    background: #6b4fd8;
+}
+
+.essayguard-contrib-fill-comparative {
+    background: #1a73e8;
+}
+
+.essayguard-contrib-value {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.essayguard-contrib-value-observed {
+    color: #d93025;
+}
+
+.essayguard-contrib-value-behavioural {
+    color: #e8710a;
+}
+
+.essayguard-contrib-value-style {
+    color: #6b4fd8;
+}
+
+.essayguard-contrib-value-comparative {
+    color: #1a73e8;
+}
+
+/* The score is a measurement. This line is the one thing on the page that says so. */
+.essayguard-contrib-note {
+    margin: 0 0 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #e8710a;
+}
+
+/* --- Student disclosure notice ------------------------------------------- */
+
+.essayguard-disclosure {
+    display: flex;
+    gap: 11px;
+    margin: 0 0 16px;
+    padding: 13px 16px;
+    background: #e8f0fe;
+    border: 1px solid #c6dafc;
+    border-radius: 8px;
+}
+
+.essayguard-disclosure::before {
+    content: "";
+    flex: none;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    background-color: #1a73e8;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpolyline points='9 12 11 14 15 10'/%3E%3C/svg%3E") no-repeat center / contain;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpolyline points='9 12 11 14 15 10'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+
+.essayguard-disclosure-heading {
+    margin: 0 0 3px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #174ea6;
+}
+
+.essayguard-disclosure p {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: #174ea6;
+}
+
+.essayguard-disclosure p + p {
+    margin-top: 6px;
+}
+
+/* Key metrics as cards rather than table rows, matching the reference. The markup stays
+   a table because that is what the figures are - label/value pairs - and a screen reader
+   should still read them as such. */
+.essayguard-student-metrics {
+    display: block;
+    width: 100%;
+    margin: 0;
+    border: 0;
+}
+
+.essayguard-student-metrics tbody {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+}
+
+.essayguard-student-metrics tr {
+    display: block;
+    padding: 11px 14px;
+    background: #f8f9fa;
+    border: 1px solid #e3e8ef;
+    border-radius: 8px;
+}
+
+.essayguard-student-metrics td {
+    display: block;
+    padding: 0;
+    border: 0;
+}
+
+.essayguard-student-metriclabel {
+    margin-bottom: 3px;
+    font-size: 0.8125rem;
+    color: #5f6368;
+}
+
+.essayguard-student-metrics td + td {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #202124;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Concise student notice: one sentence, no heading, shield aligned to the text. */
+.essayguard-disclosure-body {
+    min-width: 0;
+}
+
+.essayguard-disclosure-concise {
+    align-items: center;
+}
+
+/* --- Compared with earlier work ----------------------------------------- */
+
+.essayguard-trend-heading {
+    margin: 22px 0 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #202124;
+}
+
+.essayguard-trend {
+    padding: 14px 16px;
+    background: #fff;
+    border: 1px solid #e3e8ef;
+    border-radius: 8px;
+}
+
+.essayguard-trend-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 100%;
+    overflow: visible;
+}
+
+.essayguard-trend-axis {
+    stroke: #e8eaed;
+    stroke-width: 1;
+}
+
+/* Earlier work in blue; the step into this activity takes its colour from where it
+   landed, so a jump is visible before any number is read. */
+.essayguard-trend-line {
+    fill: none;
+    stroke: #1a73e8;
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.essayguard-trend-final {
+    stroke: #1a73e8;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+.essayguard-trend-final-rising {
+    stroke: #d93025;
+}
+
+.essayguard-trend-dot {
+    fill: #1a73e8;
+}
+
+.essayguard-trend-dot-current {
+    fill: #d93025;
+}
+
+.essayguard-trend-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.essayguard-trend-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 0.75rem;
+    color: #5f6368;
+}
+
+.essayguard-trend-label-score {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #202124;
+}
+
+.essayguard-trend-label-current .essayguard-trend-label-name,
+.essayguard-trend-label-current .essayguard-trend-label-score {
+    color: #a52318;
+}
+
+/* --- Headline metrics ---------------------------------------------------- */
+
+.essayguard-headline-heading {
+    margin: 22px 0 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #202124;
+}
+
+.essayguard-headline {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    margin: 0 0 6px;
+}
+
+@media (min-width: 560px) {
+    .essayguard-headline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+.essayguard-headline-item {
+    padding: 11px 14px;
+    background: #f8f9fa;
+    border: 1px solid #e3e8ef;
+    border-radius: 8px;
+}
+
+.essayguard-headline-label {
+    margin: 0 0 3px;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    color: #5f6368;
+}
+
+.essayguard-headline-value {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #202124;
+}

@@ -75,6 +75,17 @@ class settings_form extends \moodleform {
         $mform->setDefault('retentiondays', 90);
         $mform->addElement('static', 'retentiondays_desc', '', get_string('retentiondays_desc', $c));
 
+        // How much the student notice says. The full notice is the defensible one, so it
+        // is the default; concise is a single sentence for sites that cover the rest
+        // elsewhere.
+        $mform->addElement('select', 'disclosurestyle', get_string('disclosurestyle', $c), [
+            'full'    => get_string('disclosurestyle_full', $c),
+            'concise' => get_string('disclosurestyle_concise', $c),
+        ]);
+        $mform->setType('disclosurestyle', PARAM_ALPHA);
+        $mform->setDefault('disclosurestyle', 'full');
+        $mform->addElement('static', 'disclosurestyle_desc', '', get_string('disclosurestyle_desc', $c));
+
         $this->add_action_buttons(false);
     }
 

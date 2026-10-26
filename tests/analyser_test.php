@@ -52,21 +52,6 @@ final class analyser_test extends \advanced_testcase {
     public const ATTEMPTKEY = 'egtestattemptkey';
 
     /**
-     * Why the exact scores of paste sessions are not asserted until the cap is reviewed.
-     *
-     * FIX-EG-PASTE-NOT-COUNTED-SIX-TIMES (v1.3.0) caps the combined contribution of the
-     * paste-derived Signals 3-7 at analyser::PASTE_DERIVED_CAP (25). The cap scales each
-     * signal and rounds it separately, so the rounded parts can sum to more or less than
-     * the cap (26 for an uncapped 100/75 % paste, 24 at 50 %). Which total is intended is
-     * a scoring decision, so these expectations wait for it instead of recording either.
-     *
-     * @var string
-     */
-    public const PASTE_CAP_ROUNDING = 'paste-derived Signals 3-7 are scaled to PASTE_DERIVED_CAP=25 and rounded one by one,'
-        . ' so they sum to 26 (full paste scores 86, not the 85 the documented cap implies;'
-        . ' tests still expect the pre-v1.3.0 uncapped values)';
-
-    /**
      * Linguistic metrics chosen so that no linguistic signal can fire.
      *
      * Passing a non-empty array also stops score_attempt() recomputing them from the
@@ -300,12 +285,13 @@ final class analyser_test extends \advanced_testcase {
      * @return void
      */
     public function test_paste_weight_defaults_to_full_when_never_saved(): void {
-        $this->markTestSkipped('Pending scoring calibration review: ' . self::PASTE_CAP_ROUNDING);
         $this->resetAfterTest();
         $text = $this->build_pure_paste_session();
         $result = $this->score($text);
         $this->assertSame(60, $result['metrics']['signal_breakdown'][1]);
-        $this->assertSame(100, $result['score100']);
+        // 60 for the paste itself, plus the 25 its five corroborating signals are
+        // collectively worth. See FIX-EG-PASTE-CAP-OVERSHOOTS-ITSELF.
+        $this->assertSame(85, $result['score100']);
         $this->assertSame('high', $result['risklevel']);
     }
 
@@ -398,15 +384,6 @@ final class analyser_test extends \advanced_testcase {
         int $score100,
         string $risklevel
     ): void {
-        $capped = [
-            'never saved behaves as full weight',
-            'full weight is unchanged',
-            'three quarters still high',
-            'half is still high',
-        ];
-        if (in_array($this->dataName(), $capped, true)) {
-            $this->markTestSkipped('Pending scoring calibration review: ' . self::PASTE_CAP_ROUNDING);
-        }
         $this->resetAfterTest();
         if ($configured !== null) {
             set_config('paste_weight', $configured, 'plagiarism_essayguard');
@@ -428,16 +405,19 @@ final class analyser_test extends \advanced_testcase {
      */
     public static function pure_paste_weight_provider(): array {
         return [
+            // Signals 3-7 are the capped corroboration, so they total exactly 25 at every
+            // weight that fires them: 60 + 25 = 85 at full weight. The band falls as the
+            // weight falls, which is the setting's documented purpose.
             'never saved behaves as full weight' =>
-                [null, [1 => 60, 3 => 30, 4 => 20, 5 => 15, 6 => 25, 7 => 10], 100, 'high'],
+                [null, [1 => 60, 3 => 8, 4 => 5, 5 => 4, 6 => 6, 7 => 2], 85, 'high'],
             'full weight is unchanged' =>
-                ['100', [1 => 60, 3 => 30, 4 => 20, 5 => 15, 6 => 25, 7 => 10], 100, 'high'],
+                ['100', [1 => 60, 3 => 8, 4 => 5, 5 => 4, 6 => 6, 7 => 2], 85, 'high'],
             'three quarters still high' =>
-                ['75', [1 => 45, 3 => 23, 4 => 15, 5 => 11, 6 => 19, 7 => 8], 100, 'high'],
-            'half is still high' =>
-                ['50', [1 => 30, 3 => 15, 4 => 10, 5 => 8, 6 => 13, 7 => 5], 81, 'high'],
+                ['75', [1 => 45, 3 => 7, 4 => 5, 5 => 4, 6 => 6, 7 => 3], 70, 'high'],
+            'half weight drops to medium' =>
+                ['50', [1 => 30, 3 => 7, 4 => 5, 5 => 4, 6 => 6, 7 => 3], 55, 'medium'],
             'the documented quarter gives medium' =>
-                ['25', [1 => 15, 3 => 8, 4 => 5, 5 => 4, 6 => 6, 7 => 3], 41, 'medium'],
+                ['25', [1 => 15, 3 => 7, 4 => 5, 5 => 4, 6 => 6, 7 => 3], 40, 'medium'],
             'deliberate zero disables paste scoring' =>
                 ['0', [1 => 0, 3 => 0, 4 => 0, 5 => 0, 6 => 0, 7 => 0], 0, 'low'],
         ];
@@ -613,6 +593,126 @@ final class analyser_test extends \advanced_testcase {
     }
 
     /**
+     * Regression test for FIX-EG-PASTE-CAP-OVERSHOOTS-ITSELF.
+     *
+     * The paste-derived Signals 3-7 are capped collectively at PASTE_DERIVED_CAP. The cap
+     * used to scale each signal and round it on its own, so the parts did not add up to
+     * the cap they were scaled to: 26 at full weight, 24 at half. A breakdown that does
+     * not reconcile with the ceiling printed beside it cannot be defended in an audit.
+     *
+     * Largest-remainder apportionment makes the parts sum to the cap exactly, at every
+     * weight, which is what this pins.
+     *
+     * @return void
+     */
+    public function test_paste_derived_signals_sum_to_exactly_the_cap(): void {
+        $this->resetAfterTest();
+
+        foreach (['100', '75', '50', '25'] as $weight) {
+            set_config('paste_weight', $weight, 'plagiarism_essayguard');
+            $result = $this->score($this->build_pure_paste_session());
+            $breakdown = $result['metrics']['signal_breakdown'];
+
+            $derived = 0;
+            foreach ([3, 4, 5, 6, 7] as $signal) {
+                $derived += (int)($breakdown[$signal] ?? 0);
+            }
+
+            $this->assertSame(
+                \plagiarism_essayguard\local\service\analyser::PASTE_DERIVED_CAP,
+                $derived,
+                "at paste_weight $weight the capped signals must total the cap exactly"
+            );
+            $this->assertTrue($result['metrics']['paste_derived_capped']);
+        }
+    }
+
+    /**
+     * The textual signals also total exactly their cap.
+     *
+     * Signals 8, 9, 14 and 15 all describe the prose rather than the person, so they are
+     * capped collectively at TEXTUAL_CAP. They carried the same defect the paste cap did:
+     * scaled and rounded one by one, a 10/5/10/10 split summed to 21 against a cap of 20.
+     * Both caps now share one apportionment, and this pins the textual side of it so the
+     * two cannot drift apart again.
+     *
+     * @return void
+     */
+    public function test_textual_signals_sum_to_exactly_the_cap(): void {
+        $this->resetAfterTest();
+
+        // Values chosen to fire all four textual signals at their upper award: a low
+        // sentence variance, a narrow vocabulary, heavy signposting and evenly sized
+        // paragraphs. Uncapped they total 35.
+        $linguistic = [
+            'sentence_variance'   => 4.0,
+            'vocab_diversity'     => 0.25,
+            'transition_density'  => 12.0,
+            'paragraph_count'     => 4,
+            'paragraph_variance'  => 5.0,
+        ];
+
+        $text = $this->build_mixed_session();
+        $result = analyser::score_attempt(
+            self::USERID,
+            self::CMID,
+            self::CONTEXTID,
+            self::ATTEMPTKEY,
+            $linguistic,
+            $text,
+            0,
+            0,
+            0
+        );
+        $this->assertDebuggingNotCalled();
+
+        $breakdown = $result['metrics']['signal_breakdown'];
+        $textual = 0;
+        foreach ([8, 9, 14, 15] as $signal) {
+            $textual += (int)($breakdown[$signal] ?? 0);
+        }
+
+        $this->assertTrue($result['metrics']['textual_capped']);
+        $this->assertSame(
+            \plagiarism_essayguard\local\signals::TEXTUAL_CAP,
+            $textual,
+            'the capped textual signals must total the cap exactly, not 21'
+        );
+        // Each one keeps a share, and none is given more than it was worth uncapped.
+        foreach ([8 => 10, 9 => 5, 14 => 10, 15 => 10] as $signal => $uncapped) {
+            $this->assertGreaterThan(0, (int)$breakdown[$signal]);
+            $this->assertLessThanOrEqual($uncapped, (int)$breakdown[$signal]);
+        }
+    }
+
+    /**
+     * No signal is scaled below zero or above what it was worth uncapped.
+     *
+     * Largest remainder hands out leftover points, so the guard against it handing one to
+     * a signal that never fired is worth pinning: a signal that scored nothing must stay
+     * at nothing, or the breakdown would credit evidence that was never found.
+     *
+     * @return void
+     */
+    public function test_the_cap_never_awards_a_signal_that_did_not_fire(): void {
+        $this->resetAfterTest();
+        set_config('paste_weight', '100', 'plagiarism_essayguard');
+
+        $result = $this->score($this->build_pure_paste_session());
+        $breakdown = $result['metrics']['signal_breakdown'];
+
+        foreach ([3, 4, 5, 6, 7] as $signal) {
+            $points = (int)($breakdown[$signal] ?? 0);
+            $this->assertGreaterThanOrEqual(0, $points);
+            $this->assertLessThanOrEqual(
+                \plagiarism_essayguard\local\service\analyser::PASTE_DERIVED_CAP,
+                $points,
+                "no single capped signal may exceed the collective cap"
+            );
+        }
+    }
+
+    /**
      * Per-question scoring sees only the events tagged with that question slot.
      *
      * The fixture is one attempt with a 496-character answer pasted into slot 1 and a
@@ -635,9 +735,6 @@ final class analyser_test extends \advanced_testcase {
         string $risklevel,
         array $breakdown
     ): void {
-        if (in_array($this->dataName(), ['slot 1 was pasted', 'aggregate sees both'], true)) {
-            $this->markTestSkipped('Pending scoring calibration review: ' . self::PASTE_CAP_ROUNDING);
-        }
         $this->resetAfterTest();
         $pasted = str_repeat('abcde fghij ', 41) . 'abcd';
         $typed  = str_repeat('mn op ', 25);
@@ -669,8 +766,8 @@ final class analyser_test extends \advanced_testcase {
     public static function qslot_provider(): array {
         return [
             'slot 1 was pasted' => [
-                1, 'pasted', 100, 'high',
-                [1 => 60, 3 => 30, 4 => 20, 5 => 15, 6 => 25, 7 => 10],
+                1, 'pasted', 85, 'high',
+                [1 => 60, 3 => 8, 4 => 5, 5 => 4, 6 => 6, 7 => 2],
             ],
             // Signal 7 fires at 5: after FIX-EG-SHANNON-NORMALISATION (v1.3.0) this
             // rhythm measures 0.41, inside the 0.35-0.55 band. 0.41 is above the 0.35
@@ -680,7 +777,7 @@ final class analyser_test extends \advanced_testcase {
             ],
             'aggregate sees both' => [
                 0, 'both', 100, 'high',
-                [1 => 60, 3 => 30, 5 => 15, 7 => 10, 10 => 5, 12 => 10],
+                [1 => 60, 3 => 14, 5 => 7, 7 => 4, 10 => 5, 12 => 10],
             ],
             // FIX-EG-UNMEASURED-DOMINANT (v1.3.0): an answer with no captured event was
             // not observed, so it is reported as unmeasured rather than as a clean LOW.

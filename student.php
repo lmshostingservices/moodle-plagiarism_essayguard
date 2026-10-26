@@ -329,6 +329,211 @@ function plagiarism_essayguard_signal_evidence(int $num, object $sc, array $m): 
 }
 
 /**
+ * Build the "compared with earlier work" series for one learner.
+ *
+ * Every activity in the same course that Essay Guard has already scored for this learner,
+ * oldest first, with the current activity as the final point. A single point is not a
+ * comparison, so fewer than two returns nothing and the chart is not drawn at all.
+ *
+ * Only the aggregate row (qslot 0) is used, and only the most recent attempt per activity,
+ * so the line compares like with like.
+ *
+ * @param int $userid The learner.
+ * @param int $cmid The activity being viewed.
+ * @param int $courseid The course to look across.
+ * @param object|null $current The current score record, or null when there is none.
+ * @return array Template context, or [] when there is nothing to compare.
+ */
+function plagiarism_essayguard_build_trend(int $userid, int $cmid, int $courseid, ?object $current): array {
+    global $DB;
+
+    if (!$current) {
+        return [];
+    }
+
+    $modinfo = get_fast_modinfo($courseid);
+    $cmids = array_keys($modinfo->get_cms());
+    if (count($cmids) < 2) {
+        return [];
+    }
+
+    [$insql, $params] = $DB->get_in_or_equal($cmids, SQL_PARAMS_NAMED, 'cm');
+    $params['userid'] = $userid;
+
+    $records = $DB->get_records_sql(
+        "SELECT id, cmid, riskscore, timemodified
+           FROM {plagiarism_essayguard_sc}
+          WHERE userid = :userid AND qslot = 0 AND cmid $insql
+       ORDER BY timemodified ASC, id ASC",
+        $params
+    );
+
+    // Most recent scored attempt per activity.
+    $latest = [];
+    foreach ($records as $r) {
+        $latest[(int)$r->cmid] = $r;
+    }
+    if (count($latest) < 2) {
+        return [];
+    }
+
+    // Course order, so the line reads left to right as the learner progressed.
+    $ordered = [];
+    foreach ($modinfo->get_cms() as $id => $modcm) {
+        if (isset($latest[(int)$id])) {
+            $ordered[] = ['cm' => $modcm, 'rec' => $latest[(int)$id]];
+        }
+    }
+    if (count($ordered) < 2) {
+        return [];
+    }
+
+    // Geometry. Plotted here rather than in the template so the template stays markup.
+    $width = 420;
+    $height = 150;
+    $padx = 22;
+    $pady = 16;
+    $count = count($ordered);
+    $step = $count > 1 ? ($width - (2 * $padx)) / ($count - 1) : 0;
+
+    $points = [];
+    $i = 0;
+    foreach ($ordered as $entry) {
+        $score = (int)round((float)$entry['rec']->riskscore * 100);
+        $iscurrent = ((int)$entry['rec']->cmid === $cmid);
+        $x = $padx + ($step * $i);
+        $y = $pady + ((100 - min(100, max(0, $score))) / 100) * ($height - (2 * $pady));
+        $points[] = [
+            'x'         => round($x, 1),
+            'y'         => round($y, 1),
+            'score'     => $score,
+            'label'     => $iscurrent
+                ? get_string('trend_thisactivity', 'plagiarism_essayguard')
+                : format_string($entry['cm']->name, true, ['context' => context_module::instance($entry['cm']->id)]),
+            'iscurrent' => $iscurrent,
+        ];
+        $i++;
+    }
+
+    // The polyline for the earlier work, and the segment into the current activity drawn
+    // separately so it can be coloured by where it ended up.
+    $earlier = array_slice($points, 0, -1);
+    $last = $points[count($points) - 1];
+    $prev = $points[count($points) - 2];
+
+    $polyline = [];
+    foreach ($earlier as $pt) {
+        $polyline[] = $pt['x'] . ',' . $pt['y'];
+    }
+
+    $rising = $last['score'] > $prev['score'];
+
+    return [
+        'width'      => $width,
+        'height'     => $height,
+        'polyline'   => implode(' ', $polyline),
+        'lastx'      => $last['x'],
+        'lasty'      => $last['y'],
+        'prevx'      => $prev['x'],
+        'prevy'      => $prev['y'],
+        'rising'     => $rising,
+        'points'     => $points,
+        'labelcount' => count($points),
+    ];
+}
+
+/**
+ * Group the individual signals into the four families the detail page leads with.
+ *
+ * The signal table beneath this is the evidence and stays exactly as it was. What it does
+ * not do is answer the first question a marker asks - "what is actually driving this
+ * score?" - because seven numbered rows with points in them is a ledger, not a summary.
+ * These four bars are that summary, computed from the same figures.
+ *
+ * @param array  $breakdown      signal_breakdown from metricsjson: signal number => points.
+ * @param int    $baselinedevpts Points contributed by departure from the learner's baseline.
+ * @param int    $lingfallbackpts Points contributed by writing-style analysis.
+ * @param array  $siginfo        Signal definitions: num => [name, max, description].
+ * @return array Template context: a list of contribution bars.
+ */
+function plagiarism_essayguard_signal_contributions(
+    array $breakdown,
+    int $baselinedevpts,
+    int $lingfallbackpts,
+    array $siginfo
+): array {
+    // Signal 1 is the paste detector; the rest of the numbered signals describe how the
+    // text was typed. Writing style and comparative deviation are scored separately and
+    // never appear in the numbered breakdown.
+    $families = [
+        'observed'    => [1],
+        'behavioural' => [2, 3, 4, 5, 12, 13],
+    ];
+
+    $maxfor = function (array $nums) use ($siginfo): int {
+        $total = 0;
+        foreach ($nums as $n) {
+            if (isset($siginfo[$n][1])) {
+                $total += (int)$siginfo[$n][1];
+            }
+        }
+        return $total;
+    };
+    $sumfor = function (array $nums) use ($breakdown): int {
+        $total = 0;
+        foreach ($nums as $n) {
+            $total += (int)($breakdown[$n] ?? 0);
+        }
+        return $total;
+    };
+
+    // The caps are the ones the scoring engine already applies, not display limits.
+    $lingcap = 20;
+    $basecap = 15;
+
+    $bars = [
+        [
+            'key'      => 'observed',
+            'label'    => get_string('contrib_observed', 'plagiarism_essayguard'),
+            'sublabel' => get_string('contrib_observed_desc', 'plagiarism_essayguard'),
+            'points'   => $sumfor($families['observed']),
+            'max'      => max(1, $maxfor($families['observed'])),
+        ],
+        [
+            'key'      => 'behavioural',
+            'label'    => get_string('contrib_behavioural', 'plagiarism_essayguard'),
+            'sublabel' => get_string('contrib_behavioural_desc', 'plagiarism_essayguard'),
+            'points'   => $sumfor($families['behavioural']),
+            'max'      => max(1, $maxfor($families['behavioural'])),
+        ],
+        [
+            'key'      => 'style',
+            'label'    => get_string('contrib_style', 'plagiarism_essayguard'),
+            'sublabel' => get_string('contrib_style_desc', 'plagiarism_essayguard', $lingcap),
+            'points'   => $lingfallbackpts,
+            'max'      => $lingcap,
+        ],
+        [
+            'key'      => 'comparative',
+            'label'    => get_string('contrib_comparative', 'plagiarism_essayguard'),
+            'sublabel' => get_string('contrib_comparative_desc', 'plagiarism_essayguard'),
+            'points'   => $baselinedevpts,
+            'max'      => $basecap,
+        ],
+    ];
+
+    foreach ($bars as &$bar) {
+        $bar['pct'] = $bar['max'] > 0
+            ? (int)round(min(100, ($bar['points'] / $bar['max']) * 100))
+            : 0;
+        $bar['fired'] = $bar['points'] > 0;
+    }
+    unset($bar);
+
+    return $bars;
+}
+
+/**
  * Build the template context for one signal breakdown table
  * (rendered by plagiarism_essayguard/student_signal_table).
  *
@@ -377,6 +582,12 @@ function plagiarism_essayguard_signal_table_context(
 
     return [
         'hasbreakdown'   => true,
+        'contributions'  => plagiarism_essayguard_signal_contributions(
+            $breakdown,
+            $baselinedevpts,
+            $lingfallbackpts,
+            $siginfo
+        ),
         'rows'           => $rows,
         'baselinebonus'  => $baselinedevpts > 0 ? [
             'points'    => $baselinedevpts,
@@ -443,10 +654,19 @@ $egallrecords = $DB->get_records_sql(
 $egbyslot = plagiarism_essayguard_scope_to_current_attempt(array_values($egallrecords));
 $sc = $egbyslot[0] ?? (reset($egbyslot) ?: null);
 
+/* ── Trend: this learner's earlier assessed work in the same course ──────────── */
+
+// Real history only. This chart is an argument about a person, so a placeholder point
+// would be worse than no chart: the earlier activities are read from the score table and
+// if there is nothing to compare against, nothing is drawn.
+$trend = plagiarism_essayguard_build_trend($userid, $cmid, $cm->course, $sc);
+
 $modinfo = get_fast_modinfo($cm->course);
 $actname = $modinfo->get_cm($cmid)->name;
 
 $data = [
+    'trend'        => $trend,
+    'hastrend'     => !empty($trend),
     'backurl'      => (new moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]))->out(false),
     'heading'      => $egpageheading,
     'activityname' => $actname,
@@ -578,6 +798,49 @@ $metricrows = [
     ['metric_vocabdiversity', number_format((float)($sc->vocab_diversity ?? 0), 3)],
     ['metric_baselinedev', number_format((float)($sc->baseline_deviation ?? 0), 3)],
 ];
+// Headline metrics.
+//
+// The full behavioural table below lists fourteen raw values, which is the right record
+// but the wrong first read: an assessor wants the two or three figures that explain the
+// score. These are those, computed from the same columns.
+//
+// Deliberately phrased as what is actually measured. The product reference shows "412
+// characters in 1 paste" and "longest pause 3 min 10 s"; the tracker stores a paste COUNT
+// and a MEAN pause, not a character total or a maximum, so claiming either here would be
+// inventing precision the data does not have. Capturing those needs a tracker change.
+$egcorrections = (int)($sc->backspace_count ?? 0) + (int)($sc->delete_count ?? 0);
+$egkeystrokes  = (int)($sc->total_keystrokes ?? 0);
+$data['headlinemetrics'] = [
+    [
+        'label' => get_string('metric_pastes', 'plagiarism_essayguard'),
+        'value' => (string)(int)($sc->paste_events ?? 0),
+    ],
+    [
+        'label' => get_string('headline_typingspeed', 'plagiarism_essayguard'),
+        'value' => get_string(
+            'headline_wpm',
+            'plagiarism_essayguard',
+            number_format((float)($sc->average_wpm ?? 0), 1)
+        ),
+    ],
+    [
+        'label' => get_string('headline_meanpause', 'plagiarism_essayguard'),
+        'value' => get_string(
+            'headline_seconds',
+            'plagiarism_essayguard',
+            number_format((float)($sc->pause_mean ?? 0) / 1000, 1)
+        ),
+    ],
+    [
+        'label' => get_string('headline_corrections', 'plagiarism_essayguard'),
+        'value' => get_string('headline_correctionsvalue', 'plagiarism_essayguard', (object)[
+            'corrections' => $egcorrections,
+            'keystrokes'  => $egkeystrokes,
+        ]),
+    ],
+];
+$data['hasheadlinemetrics'] = ($egkeystrokes > 0);
+
 $data['metrics'] = [];
 foreach ($metricrows as [$egkey, $egvalue]) {
     $data['metrics'][] = [
