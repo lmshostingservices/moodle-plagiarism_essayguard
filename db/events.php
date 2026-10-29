@@ -61,6 +61,16 @@ $observers = [
         'internal'  => false,
     ],
 
+    // V2.0.1: AI Advent Speaking and Writing - a written draft was submitted and marked.
+    // internal=false: dispatched after the marking transaction commits, so the draft row
+    // the observer reads is the committed, marked one.
+    [
+        'eventname' => '\mod_aispeakwrite\event\answer_submitted',
+        'callback'  => 'plagiarism_essayguard\observer::on_aispeakwrite_answer_submitted',
+        'priority'  => 0,
+        'internal'  => false,
+    ],
+
     // V1.2.229 FIX-EG-ORPHAN-ON-CM-DELETE: purge this plugin's rows when the activity
     // they describe is deleted. Without this the rows outlive their context and become
     // permanently unreachable by the privacy framework — see observer for the detail.

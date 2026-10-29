@@ -446,10 +446,11 @@ class fingerprint {
      * Collapse a Moodle module name onto the activity types the baseline partitions by.
      *
      * @param string $modname The activity type name, e.g. "quiz".
-     * @return string One of quiz, assign, forum or other.
+     * @return string One of quiz, assign, forum, aispeakwrite or other.
      */
     public static function normalise_context_type(string $modname): string {
-        $known = ['quiz', 'assign', 'forum'];
+        // V2.0.1: aispeakwrite (AI Advent Speaking and Writing) gets its own baseline.
+        $known = ['quiz', 'assign', 'forum', 'aispeakwrite'];
         return in_array($modname, $known, true) ? $modname : 'other';
     }
 

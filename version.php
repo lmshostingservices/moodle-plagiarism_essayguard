@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'plagiarism_essayguard';
-$plugin->version   = 2026102501;
-$plugin->release   = '2.0.0';
+$plugin->version   = 2026102900;
+$plugin->release   = '2.0.1';
 $plugin->requires  = 2024042200;   // Moodle 4.4: the output hooks in db/hooks.php need it.
 $plugin->maturity  = MATURITY_STABLE;
 $plugin->supported = [404, 503];

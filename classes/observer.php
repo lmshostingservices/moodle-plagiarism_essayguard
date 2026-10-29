@@ -98,6 +98,165 @@ class observer {
     }
 
     /**
+     * V2.0.1: handle mod_aispeakwrite answer_submitted - one score per written draft.
+     *
+     * The text is read from the database, never from the event. Each draft is its own typing
+     * session (attempt key asw_<draft id>). A rewrite opens prefilled with the learner's
+     * previous marked draft, so on draft 2 and later only the words added since that draft
+     * are scored: the prefilled text was neither typed nor pasted in this session, and
+     * scoring it would make every honest rewrite look pasted.
+     *
+     * @param \core\event\base $event The mod_aispeakwrite answer_submitted event.
+     * @return void
+     */
+    public static function on_aispeakwrite_answer_submitted(\core\event\base $event): void {
+        global $DB;
+
+        if (!self::is_active()) {
+            return;
+        }
+        $cmid = (int)$event->contextinstanceid;
+        if (!self::is_cm_active($cmid)) {
+            return;
+        }
+        $subid = (int)$event->objectid;
+        $sub = $DB->get_record('aispeakwrite_sub', ['id' => $subid]);
+        if (!$sub || $sub->kind !== 'writing') {
+            return;
+        }
+        $cm = get_coursemodule_from_id('aispeakwrite', $cmid, 0, false, IGNORE_MISSING);
+        $userid = (int)($event->relateduserid ?: $event->userid);
+        if (!$cm || (int)$sub->aispeakwriteid !== (int)$cm->instance || (int)$sub->userid !== $userid) {
+            return;
+        }
+
+        // No telemetry for this draft means the tracker never ran on it (Essay Guard was
+        // switched on after it was written, the app, JS off): there is nothing to score, and
+        // no record is written - see do_score().
+        $attemptkey = 'asw_' . $subid;
+        if (
+            !$DB->record_exists('plagiarism_essayguard_ev', ['userid' => $userid, 'cmid' => $cmid,
+                'attemptkey' => $attemptkey])
+        ) {
+            return;
+        }
+
+        $text = self::plain_draft((string)$sub->content);
+        if ((int)$sub->attempt > 1) {
+            $previous = $DB->get_records_select(
+                'aispeakwrite_sub',
+                "taskid = :taskid AND userid = :userid AND kind = 'writing' AND status = 'marked'
+                 AND attempt < :attempt AND id <> :id",
+                ['taskid' => $sub->taskid, 'userid' => $userid, 'attempt' => $sub->attempt, 'id' => $sub->id],
+                'attempt DESC, id DESC',
+                'id, content',
+                0,
+                1
+            );
+            if ($previous) {
+                $text = self::added_words(self::plain_draft((string)reset($previous)->content), $text);
+            }
+        }
+
+        $context = \context_module::instance($cmid);
+        self::do_score(
+            $userid,
+            $cmid,
+            $context->id,
+            $attemptkey,
+            $text,
+            0,
+            (int)$sub->timecreated,
+            (int)($sub->timemarked ?: time())
+        );
+    }
+
+    /**
+     * V2.0.1: a draft as plain text.
+     *
+     * @param string $text Stored draft text.
+     * @return string
+     */
+    private static function plain_draft(string $text): string {
+        return trim(str_replace(["\r\n", "\r"], "\n", strip_tags($text)));
+    }
+
+    /**
+     * V2.0.1: the words of $after that are not carried over from $before, in order.
+     *
+     * The two texts are lined up word by word (longest common subsequence) and the words of
+     * $after that are not part of it are returned, joined by single spaces. Very long texts
+     * fall back to removing each word of $before once.
+     *
+     * @param string $before The earlier draft.
+     * @param string $after  The rewrite.
+     * @return string The added words.
+     */
+    public static function added_words(string $before, string $after): string {
+        $split = function (string $t): array {
+            $parts = preg_split('/\s+/u', trim($t), -1, PREG_SPLIT_NO_EMPTY);
+            return $parts ?: [];
+        };
+        $a = $split($before);
+        $b = $split($after);
+        $n = count($a);
+        $m = count($b);
+        if ($m === 0) {
+            return '';
+        }
+        $keep = array_fill(0, $m, false);
+        if ($n * $m > 1000000) {
+            $left = array_count_values($a);
+            foreach ($b as $j => $w) {
+                if (!empty($left[$w])) {
+                    $left[$w]--;
+                    $keep[$j] = true;
+                }
+            }
+        } else {
+            // Table rows as packed 16-bit strings: a 1,000 x 1,000 table stays around 2 MB.
+            $rows = [str_repeat("\0\0", $m + 1)];
+            for ($i = 1; $i <= $n; $i++) {
+                $prev = $rows[$i - 1];
+                $row = "\0\0";
+                $leftv = 0;
+                for ($j = 1; $j <= $m; $j++) {
+                    if ($a[$i - 1] === $b[$j - 1]) {
+                        $v = unpack('n', $prev, 2 * ($j - 1))[1] + 1;
+                    } else {
+                        $v = max(unpack('n', $prev, 2 * $j)[1], $leftv);
+                    }
+                    $v = min($v, 65535);
+                    $row .= pack('n', $v);
+                    $leftv = $v;
+                }
+                $rows[] = $row;
+            }
+            $cell = fn($i, $j) => unpack('n', $rows[$i], 2 * $j)[1];
+            $i = $n;
+            $j = $m;
+            while ($i > 0 && $j > 0) {
+                if ($a[$i - 1] === $b[$j - 1]) {
+                    $keep[$j - 1] = true;
+                    $i--;
+                    $j--;
+                } else if ($cell($i - 1, $j) >= $cell($i, $j - 1)) {
+                    $i--;
+                } else {
+                    $j--;
+                }
+            }
+        }
+        $added = [];
+        foreach ($b as $j => $w) {
+            if (!$keep[$j]) {
+                $added[] = $w;
+            }
+        }
+        return implode(' ', $added);
+    }
+
+    /**
      * Handle mod_quiz attempt_submitted.
      *
      * Scoring a quiz runs the analyser once per essay slot plus once for the attempt as
@@ -297,13 +456,19 @@ class observer {
             // Only update the fingerprint baseline from the aggregate score,
             // not from individual question scores, to avoid skewing the profile.
             if ($qslot === 0) {
-                fingerprint::update($userid, $result['metrics']);
-
                 // BASELINE-EG-WELFORD (v1.4.0): also fold the submission into the
                 // per-metric running statistics that comparative scoring reads. The
                 // activity type comes from the metrics the scorer resolved, so the two
                 // sides always partition the same way.
                 $contexttype = (string)($result['metrics']['baseline_contexttype'] ?? 'other');
+
+                // V2.0.1: AI Advent writing is short, in a language the learner is still
+                // learning, and often a rewrite. It has its own baseline (contexttype
+                // aispeakwrite) and stays out of the pooled fingerprint, which describes
+                // the learner's essay writing in assignments, quizzes and forums.
+                if ($contexttype !== 'aispeakwrite') {
+                    fingerprint::update($userid, $result['metrics']);
+                }
                 fingerprint::update_statistics($userid, $contexttype, $result['metrics']);
             }
         } catch (\Throwable $e) {

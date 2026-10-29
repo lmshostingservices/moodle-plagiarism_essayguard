@@ -29,6 +29,8 @@ jobs:
           EXPECTED_ASSET_PREFIX: https://api.github.com/repos/${{ github.repository }}/releases/assets/
         run: |
           set -euo pipefail
+          mkdir -p generated-artifacts/ci-evidence
+          exec > >(tee -a generated-artifacts/ci-evidence/transport.log) 2>&1
           url="$(cat candidate-asset-url.txt)"
           # Never send the token to a candidate-controlled host or other repo.
           asset="${url#"$EXPECTED_ASSET_PREFIX"}"
@@ -42,6 +44,7 @@ jobs:
       - name: Verify original staged archive before dependency preparation
         run: |
           set -euo pipefail
+          exec > >(tee -a generated-artifacts/ci-evidence/transport.log) 2>&1
           test "$(wc -l < candidate.sha256)" = 1
           grep -Ex '[a-f0-9]{64}' candidate.sha256
           printf '%s  candidate.zip\n' "$(cat candidate.sha256)" | sha256sum --check --strict
@@ -51,7 +54,27 @@ jobs:
           name: quicklinks-native-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: .github/quicklinks-native-install/candidate.zip
           if-no-files-found: error
+          # Run-scoped copies only. Expiry NEVER authorizes deletion from the
+          # unpublished quicklinks-ci-candidates draft (separate 90-day policy).
           retention-days: 14
+      - name: Preserve available transport diagnostics even when acquisition fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quicklinks-native-transport-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .github/quicklinks-native-install/candidate.sha256
+            .github/quicklinks-native-install/candidate-asset-url.txt
+            .github/quicklinks-native-install/candidate.zip
+            .github/quicklinks-native-install/generated-artifacts/ci-evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove disposable transport files
+        if: always()
+        run: |
+          rm -rf generated-artifacts candidate.zip
+          test ! -e generated-artifacts
+          test ! -e candidate.zip
 
   quicklinks-native-install:
     # Same workflow conclusion consumed by the existing immutable-tag release gate.
@@ -95,11 +118,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p generated-artifacts/ci-evidence
+          # Capture every setup command, including failures before Composer.
+          exec > >(tee -a generated-artifacts/ci-evidence/dependency-preparation.log) 2>&1
           # This is a binary install, not a shared database service. The harness
           # creates/stops its own socket-only cluster as the unprivileged runner.
           sudo apt-get update
           sudo apt-get install -y postgresql-16
-          npm ci --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund --logs-dir="$PWD/generated-artifacts/ci-evidence/npm-logs"
           git clone --depth=1 --branch MOODLE_405_STABLE https://github.com/moodle/moodle.git generated-artifacts/moodle-source
           git -C generated-artifacts/moodle-source rev-parse HEAD > generated-artifacts/ci-evidence/moodle-commit.txt
           cp generated-artifacts/moodle-source/composer.lock generated-artifacts/ci-evidence/moodle-composer.lock
@@ -127,11 +152,16 @@ jobs:
             .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/report.json
             .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/inventory.json
             .github/quicklinks-native-install/generated-artifacts/quicklinks-native-install/run-*/*.log
+          # Audit/rerun holds and immutable commit references outlive this copy.
+          # See docs/quicklinks-native-install-validation.md in the managed source.
           retention-days: 14
           if-no-files-found: error
       - name: Remove disposable Moodle code and database files
         if: always()
-        run: rm -rf generated-artifacts
+        run: |
+          rm -rf generated-artifacts candidate.zip
+          test ! -e generated-artifacts
+          test ! -e candidate.zip
 
   test:
     runs-on: ubuntu-24.04

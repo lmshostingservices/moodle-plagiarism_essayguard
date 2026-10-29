@@ -557,6 +557,10 @@ class analyser {
         $sessionstart = null;
         $sessionend   = null;
 
+        // V2.0.1: characters the host activity inserted itself (its phrase and
+        // special-character buttons) or the learner moved inside the answer box. Reported by
+        // the tracker as benign_insert; see the textchars computation below.
+        $benignchars = 0;
         foreach ($events as $event) {
             $payload  = json_decode($event->payloadjson ?? '{}', true) ?: [];
             $evtime   = (int)$event->eventtime;
@@ -682,6 +686,12 @@ class analyser {
                     if ($d > $largeinsertmaxdelta) {
                         $largeinsertmaxdelta = $d;
                     }
+                    break;
+
+                case 'benign_insert':
+                    // V2.0.1: not a paste, not typing. Counted only so the characters can
+                    // be taken out of the text length the keystroke ratio divides by.
+                    $benignchars += max(0, (int)($payload['insertlen'] ?? 0));
                     break;
 
                 case 'focus':
@@ -845,10 +855,17 @@ class analyser {
         $textchars = ($finaltext !== '')
             ? (int)mb_strlen(html_entity_decode(strip_tags($finaltext), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
             : 0;
+        // V2.0.1: text the activity inserted for the learner (a phrase button, a special
+        // character key) or that the learner moved within the box was never typed, so it
+        // would otherwise lower the keystroke ratio of an honest writer.
+        if ($benignchars > 0) {
+            $textchars = max(0, $textchars - $benignchars);
+        }
 
         /* --- Full metrics array --- */
         $metrics = [
             'charsadded'             => $charsadded,
+            'benign_chars'           => $benignchars,
             'pastecount'             => $pastecount,
             'paste_events'           => $pastecount,
             'large_inserts'          => $largeinserts,

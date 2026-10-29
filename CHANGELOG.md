@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.0.1 - 2026-10-28
+
+**Essay Guard now works in AI Advent Speaking and Writing.** Version: `2026102900`. No
+database changes; the upgrade records the new version and does nothing else. Needs
+`mod_aispeakwrite` 1.0.4 or later for the integration; with older versions, or without it,
+nothing changes.
+
+### Fixed
+
+- **Class report for whole-answer activities.** On assignments, forums and AI Advent Speaking and Writing (scored as one
+  answer, not per question), the class report left the Risk column empty, added a blank column and said every
+  learner was "not assessed". It now shows each learner's badge and counts only learners with no typing data.
+
+### Added
+
+- **AI Advent Speaking and Writing (`mod_aispeakwrite`) is a supported activity.** The
+  tracker runs on its writing screen only, for learners only. Each draft is its own typing
+  session with the key `asw_<draft id>`, accepted only when the draft is the learner's own
+  written answer in that activity (`attemptkey_is_valid()` checks it for both web services).
+- **One score per draft.** A new observer for `\mod_aispeakwrite\event\answer_submitted`
+  reads the draft from the database when AI Advent marks it. On a rewrite, which opens
+  prefilled with the previous draft, only the words added since that draft are scored.
+- **A separate baseline for AI Advent writing.** It is partitioned as activity type
+  `aispeakwrite` and does not feed the pooled fingerprint used for essays.
+- **Badge per draft.** `get_links()` answers AI Advent's request (component
+  `mod_aispeakwrite`, the draft id as `itemid`) with that draft's score; the class report
+  links back to the activity's analytics.
+- **Host-page cooperation in the tracker**, usable by any activity:
+  - `data-essayguard-benign="ui|internal"` on the field marks an insertion the page made
+    itself or text moved within the same box. It is logged as `benign_insert`, never as a
+    paste or large insertion, and the analyser takes those characters out of the text length
+    behind the keystroke ratio.
+  - `data-essayguard="off"` keeps a field (such as a private note) out of monitoring.
+  - An `essayguard:drain` document event lets a page that submits over AJAX wait until all
+    queued telemetry has been sent; the tracker sets `data-essayguard-active` on `<html>`.
+
+### Unchanged
+
+- Essay Guard still never blocks pasting. Backup and restore of the per-activity setting,
+  the privacy provider and the clean-up when an activity is deleted work by course module
+  and context, so they cover AI Advent rows with no change; tests now cover them.
+
+
 ## 2.0.0 - 2026-10-26
 
 **Both collective caps now equal their own documented values.** Version: `2026102501`. No

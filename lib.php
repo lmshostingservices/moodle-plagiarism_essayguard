@@ -710,6 +710,18 @@ function plagiarism_essayguard_inject_tracker() {
     $quizattemptid = optional_param('attempt', 0, PARAM_INT);
     $attemptkey    = sha1($USER->id . ':' . $cm->id);
 
+    // V2.0.1: AI Advent Speaking and Writing. Only its writing screen is monitored, and every
+    // draft is its own typing session: the key names the draft, which is checked to be this
+    // learner's open draft in this activity. Any other page of the activity (dashboard, speaking,
+    // feedback) gets no tracker at all.
+    if ($cm->modname === 'aispeakwrite') {
+        $draft = plagiarism_essayguard_aispeakwrite_draft($cm, (int)$USER->id);
+        if (!$draft) {
+            return;
+        }
+        $attemptkey = 'asw_' . $draft->id;
+    }
+
     if ($quizattemptid > 0 && $cm->modname === 'quiz') {
         $ownattempt = $DB->record_exists(
             'quiz_attempts',
@@ -842,13 +854,112 @@ function plagiarism_essayguard_attempts_after(array $attempts, int $afterid): ar
 }
 
 /**
+ * V2.0.1: the open writing draft an AI Advent Speaking and Writing page is showing, if any.
+ *
+ * The tracker runs only on /mod/aispeakwrite/write.php, the writing screen. That page opens
+ * (or creates) the learner's draft before the page header is printed, so the draft exists
+ * when this runs. Read straight from the database: Essay Guard does not depend on any
+ * AI Advent class.
+ *
+ * @param object $cm     The aispeakwrite course module.
+ * @param int    $userid The learner.
+ * @return object|null The draft record (id, attempt), or null on any other page.
+ */
+function plagiarism_essayguard_aispeakwrite_draft($cm, int $userid) {
+    global $PAGE, $DB;
+
+    if (!$PAGE->has_set_url()) {
+        return null;
+    }
+    $path = $PAGE->url->get_path(false);
+    if (substr($path, -strlen('/mod/aispeakwrite/write.php')) !== '/mod/aispeakwrite/write.php') {
+        return null;
+    }
+    $taskid = (int)$PAGE->url->get_param('task');
+    if ($taskid <= 0 || !$DB->get_manager()->table_exists('aispeakwrite_sub')) {
+        return null;
+    }
+    $rows = $DB->get_records_select(
+        'aispeakwrite_sub',
+        "aispeakwriteid = :aid AND taskid = :taskid AND userid = :userid AND kind = 'writing'
+         AND status IN ('draft', 'pending', 'failed')",
+        ['aid' => $cm->instance, 'taskid' => $taskid, 'userid' => $userid],
+        'attempt DESC, id DESC',
+        'id, attempt',
+        0,
+        1
+    );
+    return $rows ? reset($rows) : null;
+}
+
+/**
+ * V2.0.1: badge for one AI Advent Speaking and Writing draft.
+ *
+ * AI Advent passes component mod_aispeakwrite and the draft id as itemid. Every draft is
+ * scored on its own (attempt key asw_<draft id>), so the badge is that draft's score, not
+ * the learner's latest.
+ *
+ * @param int    $cmid            Course module id.
+ * @param int    $userid          The learner whose draft it is.
+ * @param int    $subid           The draft id.
+ * @param bool   $isteacher       Whether the viewer may see reports.
+ * @param string $classreportlink Report link HTML for teachers, shown when there is no score.
+ * @return string Badge HTML, or the empty string.
+ */
+function plagiarism_essayguard_aispeakwrite_links(
+    int $cmid,
+    int $userid,
+    int $subid,
+    bool $isteacher,
+    string $classreportlink
+): string {
+    global $DB;
+
+    if ($subid <= 0 || !$DB->get_manager()->table_exists('aispeakwrite_sub')) {
+        return '';
+    }
+    $cm = get_coursemodule_from_id('aispeakwrite', $cmid, 0, false, IGNORE_MISSING);
+    if (
+        !$cm || !$DB->record_exists('aispeakwrite_sub', ['id' => $subid, 'userid' => $userid,
+            'aispeakwriteid' => $cm->instance, 'kind' => 'writing'])
+    ) {
+        return '';
+    }
+    $record = $DB->get_record(
+        'plagiarism_essayguard_sc',
+        ['userid' => $userid, 'cmid' => $cmid, 'attemptkey' => 'asw_' . $subid, 'qslot' => 0],
+        'id, riskscore, risklevel, metricsjson'
+    );
+    if (!$record) {
+        return $classreportlink;
+    }
+    if (plagiarism_essayguard_is_unmeasured($record)) {
+        return plagiarism_essayguard_render_badge('analysed', 0.0, 'unmeasured', '', $cmid, $userid, $isteacher, false);
+    }
+    $riskpct   = max(0, min(100, (int)round(((float)$record->riskscore) * 100)));
+    $risklevel = \plagiarism_essayguard\local\service\analyser::risk_level($riskpct);
+    return plagiarism_essayguard_render_badge(
+        'analysed',
+        (float)$riskpct,
+        $risklevel,
+        '',
+        $cmid,
+        $userid,
+        $isteacher,
+        false
+    );
+}
+
+/**
  * Whether Essay Guard can act on this activity type.
  *
  * @param string $modulename The activity type name, e.g. "quiz".
- * @return bool True for assign, quiz and forum; false for every other type.
+ * @return bool True for assign, quiz, forum and aispeakwrite; false for every other type.
  */
 function plagiarism_essayguard_supports_mod($modulename) {
-    $supported = ['assign', 'quiz', 'forum'];
+    // V2.0.1: AI Advent Speaking and Writing (mod_aispeakwrite), written answers only. See
+    // plagiarism_essayguard_aispeakwrite_draft() for how its pages are scoped.
+    $supported = ['assign', 'quiz', 'forum', 'aispeakwrite'];
     return in_array($modulename, $supported, true);
 }
 
@@ -1120,6 +1231,27 @@ function plagiarism_essayguard_attemptkey_is_valid(string $attemptkey, $cm, int 
     // attempt id was not available.
     if ($attemptkey === sha1($userid . ':' . $cm->id)) {
         return true;
+    }
+
+    // Form 3 (v2.0.1): an AI Advent Speaking and Writing draft. The draft must be this user's
+    // written answer in this activity.
+    if ($cm->modname === 'aispeakwrite') {
+        if (!preg_match('/^asw_(\d+)$/', $attemptkey, $m)) {
+            return false;
+        }
+        $dbman = $DB->get_manager();
+        if (!$dbman->table_exists('aispeakwrite_sub')) {
+            return false;
+        }
+        return $DB->record_exists(
+            'aispeakwrite_sub',
+            [
+                'id'             => (int)$m[1],
+                'userid'         => $userid,
+                'aispeakwriteid' => $cm->instance,
+                'kind'           => 'writing',
+            ]
+        );
     }
 
     // Form 2: a quiz attempt owned by this user IN THIS ACTIVITY. The activity check
@@ -1605,6 +1737,24 @@ function plagiarism_essayguard_get_links($linkarray) {
     // Students can only see their own badge; teachers can see all.
     if (!$isteacher && !$isown) {
         return '';
+    }
+
+    // V2.0.1: AI Advent Speaking and Writing drafts are scored one by one; see
+    // plagiarism_essayguard_aispeakwrite_links().
+    if (($linkarray['component'] ?? '') === 'mod_aispeakwrite') {
+        $reportlink = '';
+        if ($isteacher) {
+            $reportlink = $OUTPUT->render_from_template('plagiarism_essayguard/report_link', [
+                'reporturl' => (new \moodle_url('/plagiarism/essayguard/report.php', ['cmid' => $cmid]))->out(false),
+            ]);
+        }
+        return plagiarism_essayguard_aispeakwrite_links(
+            $cmid,
+            $userid,
+            (int)($linkarray['itemid'] ?? $linkarray['objectid'] ?? 0),
+            $isteacher,
+            $reportlink
+        );
     }
 
     /* ── PERF-FIX-EG-BATCH-PRELOAD (v1.2.211) ───────────────────────────────── */

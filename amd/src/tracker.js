@@ -422,6 +422,12 @@ define(['core/ajax'], function(Ajax) {
         });
 
         field.addEventListener('paste', function(e) {
+            // V2.0.1 HOST-BENIGN-INSERT: the host activity marks a paste of text the learner
+            // cut or copied inside this same box (data-essayguard-benign). Moving your own
+            // words is not pasting; the input event that follows records it as benign_insert.
+            if (field.dataset && field.dataset.essayguardBenign) {
+                return;
+            }
             var cd = e.clipboardData || window.clipboardData;
             var text = cd ? cd.getData('text') : '';
             var words = countWords(text);
@@ -445,6 +451,9 @@ define(['core/ajax'], function(Ajax) {
         });
 
         field.addEventListener('drop', function(e) {
+            if (field.dataset && field.dataset.essayguardBenign) {
+                return; // V2.0.1: text dragged within the same box.
+            }
             var dt = e.dataTransfer;
             var text = dt ? dt.getData('text') : '';
             if (text.length > 0) {
@@ -487,6 +496,31 @@ define(['core/ajax'], function(Ajax) {
                 _fieldWordCount = Math.max(0, _fieldWordCount + Math.round(delta / 5));
             }
             var totalWords = _fieldWordCount;
+
+            // V2.0.1 HOST-BENIGN-INSERT: text the host activity inserted itself (AI Advent's
+            // phrase chips and special-character keys set data-essayguard-benign="ui") or the
+            // learner moved within the box ("internal"). It is neither typed nor pasted: it is
+            // recorded as benign_insert, adds nothing to the typed-characters count and never
+            // raises large_insert or a burst.
+            var benignSource = (field.dataset && field.dataset.essayguardBenign) || '';
+            if (benignSource) {
+                eq('benign_insert', {
+                    source: benignSource === 'ui' ? 'ui' : 'internal',
+                    insertlen: delta > 0 ? delta : 0,
+                });
+                eq('input', {
+                    inputType: e.inputType || '',
+                    addedchars: 0,
+                    removedchars: delta < 0 ? Math.abs(delta) : 0,
+                    insertlen: 0,
+                    totalchars: current,
+                    totalwords: totalWords,
+                    suspiciousburst: 0,
+                    benign: 1,
+                });
+                return;
+            }
+
             var now = nowMs();
             var windowElapsedMin = (now - _fieldWindowStartTime) / 60000;
             if (windowElapsedMin >= 1) {
@@ -946,6 +980,11 @@ define(['core/ajax'], function(Ajax) {
                 // AI suggestion clicks fire false paste-warning banners.
                 var nodeId = node.id || '';
                 if (nodeId && /^aicourse-/i.test(nodeId)) {
+                    return;
+                }
+                // V2.0.1: a host page can exclude a field that is not part of the answer
+                // (AI Advent's private draft note) with data-essayguard="off".
+                if (node.getAttribute && node.getAttribute('data-essayguard') === 'off') {
                     return;
                 }
                 // v1.2.32: For Atto contenteditable divs, detect the quiz question slot
@@ -1711,6 +1750,18 @@ define(['core/ajax'], function(Ajax) {
 
         state = Object.assign(state, config);
         state.sessionStart = Date.now();
+
+        // V2.0.1 HOST-DRAIN: a host page that submits over AJAX instead of a form (AI Advent
+        // Speaking and Writing) asks the tracker to send everything it has queued before the
+        // answer is submitted, so the server scores the whole session. The host checks the
+        // attribute to know whether to ask, and waits for done() or its own timeout.
+        document.documentElement.setAttribute('data-essayguard-active', '1');
+        document.addEventListener('essayguard:drain', function(e) {
+            var done = (e && e.detail && typeof e.detail.done === 'function') ? e.detail.done : function() {
+                return undefined;
+            };
+            drainQueue(4500).then(done, done);
+        });
 
         // DIAG-EG-INIT (v1.2.145): First thing logged — confirms AMD module loaded and init() was called.
 

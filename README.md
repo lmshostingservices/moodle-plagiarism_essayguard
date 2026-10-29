@@ -147,6 +147,35 @@ Called at submission. Runs full linguistic analysis on final text, performs comp
 
 ---
 
+## Supported activities
+
+Assignments (online text), quizzes (essay questions), forums, and — from 2.0.1 —
+**AI Advent Speaking and Writing** (`mod_aispeakwrite` 1.0.4 or later), written answers only.
+
+In AI Advent Speaking and Writing:
+
+- The tracker runs only on the writing screen (`/mod/aispeakwrite/write.php`), for learners,
+  never for teachers. Speaking practice, the dashboard and the feedback pages are not monitored.
+- Every draft is its own typing session, keyed `asw_<draft id>`. The server checks that the
+  draft belongs to the learner and to the activity before it accepts telemetry for it.
+- A draft is scored when AI Advent marks it (event `\mod_aispeakwrite\event\answer_submitted`),
+  from the text stored in the database. One score per draft.
+- A rewrite opens with the learner's previous draft already in the box. That text was not
+  typed in this session, so on draft 2 and later only the words added since the previous
+  draft are scored.
+- Text the activity inserts itself — its phrase buttons and special-character keys — and text
+  the learner moves within the answer box are recorded as `benign_insert`, not as pastes, and
+  do not count against the keystroke ratio. The private draft note is not monitored.
+- AI Advent writing has its own baseline (activity type `aispeakwrite`) and is kept out of the
+  pooled fingerprint built from assignments, quizzes and forums.
+- The badge appears on AI Advent's feedback page for teachers, one per draft; the class
+  report links back to the activity's analytics. The disclosure is shown on the writing screen.
+- Essay Guard never blocks pasting. AI Advent has its own per-activity setting (allow, allow
+  and log, or block pasting from outside the answer box); a blocked paste never reaches the
+  tracker, so the two cannot disagree.
+
+---
+
 ## Instructor Integration
 
 Call `finalize_attempt` from your assignment/quiz submission hook:

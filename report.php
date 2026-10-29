@@ -51,6 +51,9 @@ if ($cm->modname === 'assign') {
     $gradeurl = new moodle_url('/mod/assign/view.php', ['id' => $cmid, 'action' => 'grading']);
 } else if ($cm->modname === 'quiz') {
     $gradeurl = new moodle_url('/mod/quiz/report.php', ['id' => $cmid, 'mode' => 'grading']);
+} else if ($cm->modname === 'aispeakwrite') {
+    // V2.0.1: AI Advent Speaking and Writing's class analytics list every flagged draft.
+    $gradeurl = new moodle_url('/mod/aispeakwrite/analytics.php', ['id' => $cmid]);
 } else {
     $gradeurl = new moodle_url('/mod/' . $cm->modname . '/view.php', ['id' => $cmid]);
 }
@@ -287,6 +290,29 @@ foreach ($display as $sc) {
                 'badge'    => get_string('matrixbadge', 'plagiarism_essayguard', (object)[
                     'level' => $risklabels[$byslot[$slot]['level']] ?? $risklabels['low'],
                     'score' => $byslot[$slot]['score'],
+                ]),
+            ];
+        } else {
+            $cells[] = [
+                'level'   => 'nodata',
+                'hasdata' => false,
+                'badge'   => get_string('matrixbadgenodata', 'plagiarism_essayguard'),
+            ];
+        }
+    }
+    // Activities scored as a whole (assignment, forum, AI Advent Speaking and Writing) have no
+    // question columns: show one cell for the whole answer, from the aggregate record, so the
+    // Risk column is filled and the learner is not counted as "not assessed".
+    if (!$allslots) {
+        $whole = $agg ?? reset($sc->_perq);
+        if ($whole && !plagiarism_essayguard_is_unmeasured($whole)) {
+            $anyassessed = true;
+            $cells[] = [
+                'level'   => $level,
+                'hasdata' => true,
+                'badge'   => get_string('matrixbadge', 'plagiarism_essayguard', (object)[
+                    'level' => $risklabels[$level] ?? $risklabels['low'],
+                    'score' => $score,
                 ]),
             ];
         } else {
